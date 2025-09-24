@@ -1,0 +1,60 @@
+{
+  "name": "electron-desktop-app",
+  "version": "1.0.0",
+  "description": "Desktop application built with Electron",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "keywords": [
+    "electron",
+    "desktop",
+    "application",
+    "cross-platform"
+  ],
+  "author": "Developer",
+  "license": "MIT",
+  "bugs": {
+    "url": ""
+  },
+  "homepage": "",
+  "devDependencies": {
+    "clipboardy": "^4.0.0",
+    "electron": "^38.1.2",
+    "electron-builder": "^26.0.12",
+    "electron-store": "^10.1.0"
+  },
+  "build": {
+    "appId": "com.example.app",
+    "productName": "ElectronApp",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icons/app-icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icons/app-icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icons/app-icon.png"
+    }
+  }
+}

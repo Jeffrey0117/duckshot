@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dukshot - 截圖</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+          "Noto Sans TC", sans-serif;
+        cursor: crosshair;
+        overflow: hidden;
+        background: rgba(0, 0, 0, 0.3);
+        user-select: none;
+      }
+
+      #captureCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        cursor: crosshair;
+      }
+
+      .selection-rect {
+        position: absolute;
+        border: 2px solid #0066ff;
+        background: rgba(0, 102, 255, 0.1);
+        pointer-events: none;
+        z-index: 1000;
+      }
+
+      .selection-info {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-family: "Consolas", monospace;
+        z-index: 1001;
+        pointer-events: none;
+      }
+
+      .capture-toolbar {
+        position: absolute;
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 8px;
+        padding: 12px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        z-index: 1002;
+        display: none;
+        gap: 4px;
+        align-items: center;
+        flex-direction: column;
+      }
+
+      .capture-toolbar .toolbar-row {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+
+      .capture-btn {
+        background: #0066ff;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
+      }
+
+      .capture-btn:hover {
+        background: #0052cc;
+      }
+
+      .capture-btn.cancel {
+        background: #666;
+      }
+
+      .capture-btn.cancel:hover {
+        background: #555;
+      }
+
+      .capture-btn.save-jpg {
+        background: #28a745;
+      }
+
+      .capture-btn.save-jpg:hover {
+        background: #218838;
+      }
+
+      .capture-btn.save-png {
+        background: #007bff;
+      }
+
+      .capture-btn.save-png:hover {
+        background: #0056b3;
+      }
+
+      .capture-btn.copy-clipboard {
+        background: #6f42c1;
+      }
+
+      .capture-btn.copy-clipboard:hover {
+        background: #5a359a;
+      }
+
+      .capture-btn.upload {
+        background: #fd7e14;
+      }
+
+      .capture-btn.upload:hover {
+        background: #e8680e;
+      }
+
+      .help-text {
+        position: absolute;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 1003;
+        text-align: center;
+      }
+
+      /* 遮罩層樣式 */
+      .mask-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7); /* 加深遮罩暗度 0.4 -> 0.7 */
+        z-index: 999;
+        display: none;
+        pointer-events: none;
+      }
+
+      .mask-overlay.active {
+        display: block;
+      }
+
+      /* 選取區域挖洞的洞 */
+      .mask-overlay::before {
+        content: '';
+        position: absolute;
+        background: transparent;
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+      }
+
+      /* 格線覆層樣式 */
+      .grid-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1000;
+        display: none;
+        pointer-events: none;
+      }
+
+      .grid-overlay.active {
+        display: block;
+      }
+
+      .grid-lines {
+        position: absolute;
+        background: repeating-linear-gradient(
+          to right,
+          transparent,
+          transparent 19px,
+          rgba(255, 255, 255, 0.3) 20px
+        );
+      }
+
+      .grid-lines.vertical {
+        width: 100%;
+        height: 1px;
+      }
+
+      .grid-lines.horizontal {
+        width: 1px;
+        height: 100%;
+        background: repeating-linear-gradient(
+          to bottom,
+          transparent,
+          transparent 19px,
+          rgba(255, 255, 255, 0.3) 20px
+        );
+      }
+
+      /* 座標顯示樣式 */
+      .coordinate-display {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: "Consolas", monospace;
+        z-index: 1004;
+        pointer-events: none;
+        display: none;
+      }
+
+      .coordinate-display.active {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="help-text">按住滑鼠左鍵並拖拽選擇截圖區域，按 ESC 取消截圖，右鍵重新抓取或再次取消</div>
+
+    <canvas id="captureCanvas"></canvas>
+    <div class="selection-rect" id="selectionRect"></div>
+    <div class="selection-info" id="selectionInfo"></div>
+
+    <!-- 遮罩層 -->
+    <div class="mask-overlay" id="maskOverlay"></div>
+
+    <!-- 格線覆層 -->
+    <div class="grid-overlay" id="gridOverlay">
+      <div class="grid-lines vertical" id="verticalGrid"></div>
+      <div class="grid-lines horizontal" id="horizontalGrid"></div>
+    </div>
+
+    <div class="capture-toolbar" id="captureToolbar">
+      <div class="toolbar-row">
+        <button class="capture-btn save-jpg" id="saveJpgBtn" title="儲存為 JPG">✅ JPG</button>
+        <button class="capture-btn save-png" id="savePngBtn" title="儲存為 PNG">🖼️ PNG</button>
+      </div>
+      <div class="toolbar-row">
+        <button class="capture-btn copy-clipboard" id="copyBtn" title="複製到剪貼簿">📋 複製</button>
+        <button class="capture-btn upload" id="uploadBtn" title="上傳到 duk.tw (開發中)">☁️ 上傳</button>
+      </div>
+      <div class="toolbar-row">
+        <button class="capture-btn cancel" id="cancelBtn" title="取消截圖">❌ 取消</button>
+      </div>
+    <!-- 座標顯示區域 -->
+    <div class="coordinate-display" id="coordinateDisplay"></div>
+    </div>
+
+    <script>
+      class CaptureScreen {
+        constructor() {
+          console.log('CaptureScreen: 初始化開始');
+          this.canvas = document.getElementById("captureCanvas");
+          this.ctx = this.canvas.getContext("2d");
+          this.isSelecting = false;
+          this.startX = 0;
+          this.startY = 0;
+          this.currentX = 0;
+          this.currentY = 0;
+          this.selectedRegion = null;
+          this.hasRecaptured = false; // 追蹤是否已經重新抓取過
+
+          // 遮罩和格線元素
+          this.maskOverlay = document.getElementById("maskOverlay");
+          this.gridOverlay = document.getElementById("gridOverlay");
+          // 座標顯示元素
+          this.coordinateDisplay = document.getElementById("coordinateDisplay");
+
+          this.init();
+        }
+
+        async init() {
+          // 設定畫布大小為螢幕大小
+          this.canvas.width = window.screen.width;
+          this.canvas.height = window.screen.height;
+          
+          console.log('CaptureScreen: 畫布設定完成', this.canvas.width, 'x', this.canvas.height);
+
+          // 設定事件監聽器（先設定，以便接收螢幕數據）
+          this.setupEventListeners();
+          
+          // 監聽螢幕數據
+          this.listenForScreenData();
+        }
+
+        listenForScreenData() {
+          console.log('CaptureScreen: 等待螢幕數據...');
+          
+          // 監聽從主進程傳來的螢幕數據
+          window.electronAPI.onScreenData((screenData) => {
+            console.log('CaptureScreen: 接收到螢幕數據');
+            this.loadScreenImage(screenData);
+          });
+        }
+        
+        loadScreenImage(screenData) {
+          const img = new Image();
+          img.onload = () => {
+            console.log('CaptureScreen: 繪製背景圖片');
+            this.ctx.drawImage(
+              img,
+              0,
+              0,
+              this.canvas.width,
+              this.canvas.height
+            );
+            // 重置重新抓取狀態
+            this.hasRecaptured = false;
+            
+            // 載入完成後立即顯示初始暗化遮罩
+            this.showInitialMask();
+          };
+          img.onerror = (error) => {
+            console.error('CaptureScreen: 載入圖片失敗', error);
+          };
+          img.src = screenData;
+        }
+        
+        // 顯示初始暗化遮罩
+        showInitialMask() {
+          this.maskOverlay.style.background = 'rgba(0, 0, 0, 0.5)';
+          this.maskOverlay.classList.add('active');
+        }
+
+        async captureScreen() {
+          try {
+            console.log('CaptureScreen: 重新抓取螢幕截圖');
+            
+            // 重新獲取螢幕源
+            const sources = await window.electronAPI.getDesktopSources();
+            if (sources.length > 0) {
+              this.loadScreenImage(sources[0].thumbnail);
+            }
+          } catch (error) {
+            console.error("Error capturing screen:", error);
+            alert("無法獲取螢幕截圖，請重試");
+            window.close();
+          }
+        }
+
+        setupEventListeners() {
+          // 滑鼠事件
+          this.canvas.addEventListener(
+            "mousedown",
+            this.onMouseDown.bind(this)
+          );
+          this.canvas.addEventListener(
+            "mousemove",
+            this.onMouseMove.bind(this)
+          );
+          this.canvas.addEventListener("mouseup", this.onMouseUp.bind(this));
+
+          // 右鍵事件
+          this.canvas.addEventListener(
+            "contextmenu",
+            this.onContextMenu.bind(this)
+          );
+
+          // 鍵盤事件
+          document.addEventListener("keydown", this.onKeyDown.bind(this));
+
+          // 工具列按鈕事件
+          document
+            .getElementById("saveJpgBtn")
+            .addEventListener("click", () => this.confirmCapture("jpg"));
+          document
+            .getElementById("savePngBtn")
+            .addEventListener("click", () => this.confirmCapture("png"));
+          document
+            .getElementById("copyBtn")
+            .addEventListener("click", this.copyToClipboard.bind(this));
+          document
+            .getElementById("uploadBtn")
+            .addEventListener("click", this.uploadToDukTw.bind(this));
+          document
+            .getElementById("cancelBtn")
+            .addEventListener("click", this.cancelCapture.bind(this));
+        }
+
+        onMouseDown(event) {
+          console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
+          
+          // 開始拖拽時切換到挖洞模式
+          this.maskOverlay.style.background = 'transparent';
+          
+          this.isSelecting = true;
+          this.startX = event.clientX;
+          this.startY = event.clientY;
+          this.currentX = event.clientX;
+          this.currentY = event.clientY;
+
+          // 隱藏工具列
+          document.getElementById("captureToolbar").style.display = "none";
+          document.querySelector(".help-text").style.display = "none";
+        }
+
+        onMouseMove(event) {
+          // 更新座標顯示（無論是否在選取）
+          this.updateCoordinateDisplay(event);
+          
+          if (!this.isSelecting) return;
+
+          this.currentX = event.clientX;
+          this.currentY = event.clientY;
+
+          this.updateSelection();
+        }
+
+        onMouseUp(event) {
+          if (!this.isSelecting) return;
+
+          this.isSelecting = false;
+
+          const width = Math.abs(this.currentX - this.startX);
+          const height = Math.abs(this.currentY - this.startY);
+
+          if (width > 10 && height > 10) {
+            this.selectedRegion = {
+              x: Math.min(this.startX, this.currentX),
+              y: Math.min(this.startY, this.currentY),
+              width: width,
+              height: height,
+            };
+
+            this.showToolbar();
+          } else {
+            this.clearSelection();
+          }
+          
+          // 更新座標顯示
+          this.updateCoordinateDisplay(event);
+        }
+
+        updateCoordinateDisplay(event) {
+          // 顯示座標，選取時顯示區域資訊
+          if (this.selectedRegion) {
+            const { width, height } = this.selectedRegion;
+            this.coordinateDisplay.textContent = `區域：${width} × ${height}`;
+          } else {
+            const x = event.clientX;
+            const y = event.clientY;
+            this.coordinateDisplay.textContent = `座標：${x}, ${y}`;
+          }
+          this.coordinateDisplay.classList.add("active");
+        }
+
+        onKeyDown(event) {
+          if (event.key === "Escape") {
+            this.cancelCapture();
+          } else if (event.key === "Enter" && this.selectedRegion) {
+            this.confirmCapture();
+          }
+        }
+
+        onContextMenu(event) {
+          event.preventDefault(); // 防止預設右鍵選單
+
+          if (!this.hasRecaptured) {
+            // 第一次右鍵：重新抓取螢幕截圖
+            this.clearSelection();
+            this.captureScreen();
+            this.hasRecaptured = true;
+          } else {
+            // 第二次右鍵：取消截圖
+            this.cancelCapture();
+          }
+        }
+
+        updateSelection() {
+          const rect = document.getElementById("selectionRect");
+          const info = document.getElementById("selectionInfo");
+
+          const x = Math.min(this.startX, this.currentX);
+          const y = Math.min(this.startY, this.currentY);
+          const width = Math.abs(this.currentX - this.startX);
+          const height = Math.abs(this.currentY - this.startY);
+
+          rect.style.left = x + "px";
+          rect.style.top = y + "px";
+          rect.style.width = width + "px";
+          rect.style.height = height + "px";
+          rect.style.display = "block";
+
+          info.textContent = `${width} × ${height}`;
+          info.style.left = x + width + 10 + "px";
+          info.style.top = y + "px";
+          info.style.display = "block";
+
+          // 更新視覺效果
+          this.updateVisualEffects(x, y, width, height);
+        }
+
+        updateVisualEffects(x, y, width, height) {
+          // 如果沒有選取區域，隱藏視覺效果
+          if (width < 10 || height < 10) {
+            this.hideVisualEffects();
+            return;
+          }
+
+          // 顯示遮罩層和格線
+          this.showVisualEffects();
+
+          // 更新遮罩層 - 使用四個區域覆蓋未選取部分
+          // 上區域
+          const topRegion = `0px 0px ${x + width}px ${y}px`;
+          // 左區域
+          const leftRegion = `${x}px ${y}px ${x}px ${y + height}px`;
+          // 右區域
+          const rightRegion = `${x + width}px ${y}px ${window.innerWidth}px ${y + height}px`;
+          // 下區域
+          const bottomRegion = `${x}px ${y + height}px ${x + width}px ${window.innerHeight}px`;
+
+          // 使用 box-shadow 創建多個遮罩區域
+          this.maskOverlay.style.boxShadow = `
+            ${topRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7),
+            ${leftRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7),
+            ${rightRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7),
+            ${bottomRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7)
+          `; // 加深遮罩暗度
+
+          // 更新格線位置 - 格線只在選取區域內顯示
+          this.gridOverlay.style.left = x + 'px';
+          this.gridOverlay.style.top = y + 'px';
+          this.gridOverlay.style.width = width + 'px';
+          this.gridOverlay.style.height = height + 'px';
+        }
+
+        showVisualEffects() {
+          this.maskOverlay.classList.add('active');
+          this.gridOverlay.classList.add('active');
+        }
+
+        hideVisualEffects() {
+          this.maskOverlay.classList.remove('active');
+          this.gridOverlay.classList.remove('active');
+        }
+
+        showToolbar() {
+          console.log('CaptureScreen: 顯示操作選單');
+          const toolbar = document.getElementById("captureToolbar");
+          const region = this.selectedRegion;
+
+          // 計算工具列位置，確保不超出螢幕
+          let left = region.x + region.width - 200;
+          let top = region.y + region.height + 10;
+          
+          // 邊界檢查
+          if (left < 0) left = 10;
+          if (left + 200 > window.innerWidth) left = window.innerWidth - 210;
+          if (top + 150 > window.innerHeight) top = region.y - 160;
+          
+          toolbar.style.left = left + "px";
+          toolbar.style.top = top + "px";
+          toolbar.style.display = "flex";
+        }
+
+        clearSelection() {
+          document.getElementById("selectionRect").style.display = "none";
+          document.getElementById("selectionInfo").style.display = "none";
+          document.getElementById("captureToolbar").style.display = "none";
+          this.selectedRegion = null;
+          this.isSelecting = false;
+
+          // 隱藏視覺效果
+          this.hideVisualEffects();
+        }
+
+        async confirmCapture(format = "png") {
+          if (!this.selectedRegion) return;
+
+          try {
+            // 創建臨時畫布來裁切選中區域
+            const tempCanvas = document.createElement("canvas");
+            const tempCtx = tempCanvas.getContext("2d");
+
+            tempCanvas.width = this.selectedRegion.width;
+            tempCanvas.height = this.selectedRegion.height;
+
+            // 裁切選中區域
+            tempCtx.drawImage(
+              this.canvas,
+              this.selectedRegion.x,
+              this.selectedRegion.y,
+              this.selectedRegion.width,
+              this.selectedRegion.height,
+              0,
+              0,
+              this.selectedRegion.width,
+              this.selectedRegion.height
+            );
+
+            // 將圖片數據發送到主進程
+            const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+            const imageData = tempCanvas.toDataURL(mimeType);
+            const result = await window.electronAPI.saveScreenshot(
+              imageData,
+              format
+            );
+
+            if (result.success) {
+              // 關閉截圖視窗
+              window.close();
+            } else {
+              alert("儲存截圖失敗: " + (result.error || "未知錯誤"));
+            }
+          } catch (error) {
+            console.error("Error confirming capture:", error);
+            alert("截圖處理失敗: " + error.message);
+          }
+        }
+
+        async copyToClipboard() {
+          if (!this.selectedRegion) return;
+
+          try {
+            // 創建臨時畫布來裁切選中區域
+            const tempCanvas = document.createElement("canvas");
+            const tempCtx = tempCanvas.getContext("2d");
+
+            tempCanvas.width = this.selectedRegion.width;
+            tempCanvas.height = this.selectedRegion.height;
+
+            // 裁切選中區域
+            tempCtx.drawImage(
+              this.canvas,
+              this.selectedRegion.x,
+              this.selectedRegion.y,
+              this.selectedRegion.width,
+              this.selectedRegion.height,
+              0,
+              0,
+              this.selectedRegion.width,
+              this.selectedRegion.height
+            );
+
+            // 將圖片轉換為 blob
+            tempCanvas.toBlob(async (blob) => {
+              try {
+                await navigator.clipboard.write([
+                  new ClipboardItem({ [blob.type]: blob })
+                ]);
+                // 關閉截圖視窗
+                window.close();
+              } catch (error) {
+                console.error("Error copying to clipboard:", error);
+                alert("複製到剪貼簿失敗: " + error.message);
+              }
+            });
+          } catch (error) {
+            console.error("Error processing image for clipboard:", error);
+            alert("圖片處理失敗: " + error.message);
+          }
+        }
+
+        uploadToDukTw() {
+          // 暫時顯示開發中提示
+          alert("上傳到 duk.tw 功能開發中，敬請期待！");
+        }
+
+        cancelCapture() {
+          window.close();
+        }
+      }
+
+      // 初始化截圖功能
+      document.addEventListener("DOMContentLoaded", () => {
+        new CaptureScreen();
+      });
+    </script>
+  </body>
+</html>

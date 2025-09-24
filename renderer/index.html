@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dukshot</title>
+    <link rel="stylesheet" href="css/main.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- 標題列 -->
+      <div class="titlebar">
+        <div class="titlebar-content">
+          <div class="app-title">
+            <img src="../assets/icons/logo-imgup.png" class="toolbar-icon" alt="Screenshot">
+            <span>Dukshot 截圖鴨鴨(duk.tw)</span>
+          </div>
+          <div class="window-controls">
+            <button class="window-control minimize" title="最小化">
+              <i data-lucide="minus" class="icon-sm"></i>
+            </button>
+            <button class="window-control maximize" title="最大化">
+              <i data-lucide="square" class="icon-sm"></i>
+            </button>
+            <button class="window-control close" title="關閉">
+              <i data-lucide="x" class="icon-sm"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 工具列 -->
+      <div class="toolbar">
+        <div class="toolbar-section">
+          <button
+            class="toolbar-button"
+            id="btn-screenshot"
+            title="區域截圖 (Ctrl+PrintScreen)"
+          >
+            <img src="../assets/icons/app-icon.png" class="toolbar-icon" alt="Screenshot">
+          </button>
+          <button
+            class="toolbar-button"
+            id="btn-fullscreen"
+            title="全螢幕截圖 (PrintScreen)"
+          >
+            <i data-lucide="monitor" class="icon"></i>
+          </button>
+          <button
+            class="toolbar-button"
+            id="btn-window"
+            title="視窗截圖 (Alt+PrintScreen)"
+          >
+            <i data-lucide="square" class="icon"></i>
+          </button>
+        </div>
+
+        <div class="toolbar-separator"></div>
+
+        <div class="toolbar-section">
+          <button class="toolbar-button" id="btn-folder" title="開啟資料夾">
+            <i data-lucide="folder-open" class="icon"></i>
+          </button>
+          <button class="toolbar-button" id="btn-refresh" title="重新整理">
+            <i data-lucide="refresh-cw" class="icon"></i>
+          </button>
+          <button class="toolbar-button" id="btn-delete" title="刪除選取的檔案">
+            <i data-lucide="trash-2" class="icon"></i>
+          </button>
+        </div>
+
+        <div class="toolbar-separator"></div>
+
+        <div class="toolbar-section">
+          <div class="search-container">
+            <i data-lucide="search" class="icon-sm search-icon"></i>
+            <input
+              type="text"
+              class="search-input"
+              placeholder="搜尋圖片..."
+              id="search-input"
+            />
+          </div>
+        </div>
+
+        <div class="toolbar-spacer"></div>
+
+        <div class="toolbar-section">
+          <button class="toolbar-button" id="btn-theme" title="切換主題">
+            <i data-lucide="sun" class="icon"></i>
+          </button>
+          <button class="toolbar-button" id="btn-settings" title="設定">
+            <i data-lucide="settings" class="icon"></i>
+          </button>
+          <button class="toolbar-button" id="btn-pin" title="視窗置頂">
+            <i data-lucide="pin" class="icon"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 分頁列 -->
+      <div class="tab-bar">
+        <div class="tabs-container" id="tabs-container">
+          <div class="tab active" data-folder="今日">
+            <i data-lucide="calendar" class="icon-sm"></i>
+            <span>今日</span>
+            <button class="tab-close" title="關閉分頁">
+              <i data-lucide="x" class="icon-xs"></i>
+            </button>
+          </div>
+          <div class="tab" data-folder="工作">
+            <i data-lucide="briefcase" class="icon-sm"></i>
+            <span>工作</span>
+            <button class="tab-close" title="關閉分頁">
+              <i data-lucide="x" class="icon-xs"></i>
+            </button>
+          </div>
+          <div class="tab" data-folder="專案">
+            <i data-lucide="folder" class="icon-sm"></i>
+            <span>專案</span>
+            <button class="tab-close" title="關閉分頁">
+              <i data-lucide="x" class="icon-xs"></i>
+            </button>
+          </div>
+        </div>
+        <button class="tab-add" id="btn-add-tab" title="新增分頁">
+          <i data-lucide="plus" class="icon-sm"></i>
+        </button>
+      </div>
+
+      <!-- 主要內容區域 -->
+      <div class="main-content">
+        <!-- 側邊欄 (可選) -->
+        <div class="sidebar" id="sidebar" style="display: none">
+          <div class="sidebar-header">
+            <h3>資料夾</h3>
+            <button class="sidebar-toggle" id="sidebar-toggle">
+              <i data-lucide="panel-left" class="icon-sm"></i>
+            </button>
+          </div>
+          <div class="folder-tree">
+            <!-- 資料夾樹狀結構 -->
+          </div>
+        </div>
+
+        <!-- 內容區域 -->
+        <div class="content-area">
+          <!-- 空狀態 -->
+          <div class="empty-state" id="empty-state">
+            <div class="empty-state-content">
+              <i data-lucide="camera" class="empty-icon"></i>
+              <h3>開始截圖</h3>
+              <p>按下截圖按鈕或使用快捷鍵開始截圖</p>
+              <div class="empty-actions">
+                <button class="btn btn-primary" id="btn-start-capture">
+                  <i data-lucide="camera" class="icon-sm"></i>
+                  開始截圖
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 圖片網格 -->
+          <div class="image-grid" id="image-grid">
+            <!-- 圖片卡片將動態插入這裡 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 狀態列 -->
+      <div class="status-bar">
+        <div class="status-section">
+          <span id="status-info">共 0 張圖片</span>
+        </div>
+        <div class="status-section">
+          <span id="selection-info"></span>
+        </div>
+        <div class="status-section">
+          <span id="storage-info">總大小 0 MB</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模態對話框容器 -->
+    <div class="modal-overlay" id="modal-overlay" style="display: none">
+      <!-- 模態內容將動態插入這裡 -->
+    </div>
+
+    <!-- 載入指示器 -->
+    <div class="loading-overlay" id="loading-overlay" style="display: none">
+      <div class="loading-spinner">
+        <div class="spinner"></div>
+        <span>處理中...</span>
+      </div>
+    </div>
+
+    <!-- 通知容器 -->
+    <div class="notification-container" id="notification-container">
+      <!-- 通知將動態插入這裡 -->
+    </div>
+
+    <!-- JavaScript -->
+    <script src="js/utils.js"></script>
+    <script src="js/settings.js"></script>
+    <script src="js/fileManager.js"></script>
+    <script src="js/capture.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
