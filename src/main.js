@@ -14,10 +14,70 @@ const os = require("os");
 // 工具函式：用於控制等待時機
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// 等待桌面合成器更新的時間（毫秒）- 可依需求調整
-const COMPOSITOR_WAIT_TIME = 32; // 初始值 32ms，若仍有殘影可調整為 48-64ms
+// 動態等待時間配置
+const COMPOSITOR_WAIT_CONFIG = {
+  minWait: 16,     // 最小等待時間 (ms)
+  maxWait: 48,     // 最大等待時間 (ms)
+  baseWait: 32,    // 基準等待時間 (ms)
+  loadThreshold: 0.7, // CPU負載閾值 (0-1)
+};
 
-// 雙重隱身策略的等待時間常數
+// 系統負載檢測和動態等待時間計算
+function getDynamicWaitTime(targetWaitMs = 32) {
+  try {
+    // 獲取系統負載 (1分鐘平均負載)
+    const loadAvg = os.loadavg()[0];
+    const numCpus = os.cpus().length;
+
+    // 計算相對負載 (0-1)
+    const relativeLoad = Math.min(loadAvg / numCpus, 1);
+
+    console.debug(`[動態等待] 系統負載: ${loadAvg.toFixed(2)}, CPU數: ${numCpus}, 相對負載: ${(relativeLoad * 100).toFixed(1)}%`);
+
+    let waitTime;
+
+    if (relativeLoad > COMPOSITOR_WAIT_CONFIG.loadThreshold) {
+      // 高負載時使用較長等待時間
+      waitTime = Math.min(targetWaitMs + 8, COMPOSITOR_WAIT_CONFIG.maxWait);
+      console.debug(`[動態等待] 高負載模式: ${waitTime}ms`);
+    } else if (relativeLoad < 0.3) {
+      // 低負載時使用較短等待時間
+      waitTime = Math.max(targetWaitMs - 8, COMPOSITOR_WAIT_CONFIG.minWait);
+      console.debug(`[動態等待] 低負載模式: ${waitTime}ms`);
+    } else {
+      // 中等負載使用基準等待時間
+      waitTime = targetWaitMs;
+      console.debug(`[動態等待] 標準模式: ${waitTime}ms`);
+    }
+
+    return Math.round(waitTime);
+  } catch (error) {
+    console.warn("[動態等待] 負載檢測失敗，使用基準等待時間:", error.message);
+    return targetWaitMs;
+  }
+}
+
+// 優化等待函數 - 整合動態調整和錯誤處理
+async function optimizedSleep(targetMs = 32, description = "等待") {
+  const dynamicMs = getDynamicWaitTime(targetMs);
+  console.debug(`[${description}] ${description} ${dynamicMs}ms (目標: ${targetMs}ms)`);
+
+  try {
+    await sleep(dynamicMs);
+    console.debug(`[${description}] ${description}完成`);
+  } catch (error) {
+    console.error(`[${description}] ${description}失敗:`, error);
+    // 錯誤時仍嘗試等待基準時間
+    try {
+      await sleep(targetMs);
+    } catch (fallbackError) {
+      console.error(`[${description}] 後備等待也失敗:`, fallbackError);
+    }
+  }
+}
+
+// 向下相容的舊常數 (將逐步淘汰)
+const COMPOSITOR_WAIT_TIME = 32; // 初始值 32ms，若仍有殘影可調整為 48-64ms
 const COMPOSITOR_WAIT_TIME_1 = 32; // 單幀等待時間
 const COMPOSITOR_WAIT_TIME_2 = 64; // 雙幀等待時間（更保守）
 
@@ -375,7 +435,7 @@ class DukshotApp {
       return { success: true };
     });
 
-    // 列出預設截圖資料夾中的圖片（用於前端顯示）
+    // 列出預設截圖資料夾中的圖片（用於前端顯示）- 優化版本
     ipcMain.handle("list-screenshots", async () => {
       try {
         const dir = this.getDefaultSaveDir();
@@ -392,54 +452,118 @@ class DukshotApp {
 
         // 只取常見圖片副檔名
         const exts = new Set([".png", ".jpg", ".jpeg", ".webp"]);
-        const files = [];
-
-        for (const entry of entries) {
-          if (!entry.isFile()) continue;
-          const full = pathMod.join(dir, entry.name);
+        
+        // 極速優化：只取前 50 個檔案立即返回，其餘在背景載入
+        const MAX_INITIAL_FILES = 50;
+        const filteredEntries = entries.filter(entry => {
+          if (!entry.isFile()) return false;
           const ext = pathMod.extname(entry.name).toLowerCase();
-          if (!exts.has(ext)) continue;
+          return exts.has(ext);
+        });
 
+        // 分成初始批次和延遲批次
+        const initialBatch = filteredEntries.slice(0, MAX_INITIAL_FILES);
+        const remainingBatch = filteredEntries.slice(MAX_INITIAL_FILES);
+
+        // 並行處理初始批次（前50個檔案）
+        const initialFilePromises = initialBatch.map(async (entry) => {
+          const full = pathMod.join(dir, entry.name);
+          
           try {
+            // 使用 stat 的簡化版本，只取必要資訊
             const stat = await fsp.stat(full);
-
-            // 產生縮圖（避免讀取整檔到 base64，使用 nativeImage 快速產生）
-            const thumbImage = electron.nativeImage
-              .createFromPath(full)
-              .resize({ width: 300 });
-            const thumbnail = thumbImage.isEmpty()
-              ? null
-              : thumbImage.toDataURL();
-
-            files.push({
+            
+            return {
               id: `${full}:${stat.mtimeMs}`,
               name: entry.name,
               path: full,
-              thumbnail, // 可能為 null，前端可 fallback 到 path 顯示
+              thumbnail: null, // 完全不載入縮圖
               size: stat.size,
-              createdAt:
-                stat.birthtime?.toISOString?.() || new Date().toISOString(),
-              modifiedAt:
-                stat.mtime?.toISOString?.() || new Date().toISOString(),
-              type: `image/${ext.replace(".", "")}`,
+              createdAt: stat.birthtime?.toISOString?.() || new Date().toISOString(),
+              modifiedAt: stat.mtime?.toISOString?.() || new Date().toISOString(),
+              type: `image/${pathMod.extname(entry.name).replace(".", "")}`,
               folder: folderLabel,
-              dimensions: { width: 0, height: 0 }, // 如需可再補充
-            });
+              dimensions: null, // 跳過尺寸計算
+              isInitialBatch: true
+            };
           } catch (e) {
-            console.warn("Skip file due to stat/thumbnail error:", full, e);
+            return null;
           }
-        }
+        });
 
-        // 依修改時間新到舊
-        files.sort(
-          (a, b) =>
-            new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()
+        // 處理剩餘檔案（延遲載入）
+        const remainingFilePromises = remainingBatch.map(async (entry) => {
+          const full = pathMod.join(dir, entry.name);
+          
+          try {
+            const stat = await fsp.stat(full);
+            
+            return {
+              id: `${full}:${stat.mtimeMs}`,
+              name: entry.name,
+              path: full,
+              thumbnail: null,
+              size: stat.size,
+              createdAt: stat.birthtime?.toISOString?.() || new Date().toISOString(),
+              modifiedAt: stat.mtime?.toISOString?.() || new Date().toISOString(),
+              type: `image/${pathMod.extname(entry.name).replace(".", "")}`,
+              folder: folderLabel,
+              dimensions: null,
+              isInitialBatch: false
+            };
+          } catch (e) {
+            return null;
+          }
+        });
+
+        // 快速返回初始批次
+        const initialFiles = (await Promise.all(initialFilePromises)).filter(Boolean);
+        
+        // 快速排序（只排序初始批次）
+        initialFiles.sort((a, b) =>
+          new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()
         );
 
-        return { success: true, files, directory: dir };
+        // 如果有剩餘檔案，標記需要載入更多
+        const hasMore = remainingBatch.length > 0;
+        
+        // 背景處理剩餘檔案（不等待）
+        if (hasMore) {
+          Promise.all(remainingFilePromises).then(moreFiles => {
+            const validFiles = moreFiles.filter(Boolean);
+            // 這裡可以透過 IPC 發送給前端
+            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+              this.mainWindow.webContents.send("more-files-loaded", {
+                files: validFiles,
+                directory: dir
+              });
+            }
+          });
+        }
+
+        return {
+          success: true,
+          files: initialFiles,
+          directory: dir,
+          hasMore,
+          totalCount: filteredEntries.length
+        };
       } catch (error) {
         console.error("Error listing screenshots:", error);
         return { success: false, error: error.message, files: [] };
+      }
+    });
+
+    // 新增獨立的縮圖生成 API（按需調用）
+    ipcMain.handle("get-thumbnail", async (event, filePath, width = 300) => {
+      try {
+        const thumbImage = electron.nativeImage
+          .createFromPath(filePath)
+          .resize({ width });
+        return thumbImage.isEmpty() ? null : thumbImage.toDataURL();
+      } catch (error) {
+        console.error("Error generating thumbnail:", error);
+        return null;
       }
     });
   }
@@ -487,10 +611,8 @@ class DukshotApp {
         console.debug("[區域截圖] - 移至螢幕外座標");
       }
       
-      // 步驟 2: 等待合成器兩幀時間，確保主視窗完全從桌面消失
-      console.debug(`[區域截圖] 步驟3 - 等待合成器雙幀更新 ${COMPOSITOR_WAIT_TIME_2}ms`);
-      await sleep(COMPOSITOR_WAIT_TIME_2);
-      console.debug("[區域截圖] 合成器等待完成");
+      // 步驟 2: 動態等待合成器更新，確保主視窗完全從桌面消失
+      await optimizedSleep(COMPOSITOR_WAIT_TIME_2, "區域截圖-合成器等待");
       
       // 步驟 3: 擷取桌面畫面（此時主視窗應已完全消失）
       console.debug("[區域截圖] 步驟4 - 開始擷取桌面畫面");

@@ -20,6 +20,7 @@ class DukshotApp {
     this.isFullscreen = false;
     this.skipNextRefresh = false; // 截圖後避免立即 refresh 把新圖覆蓋掉
     this.lastSelectedIndex = undefined; // 用於 Shift 多選
+    this.lastRefreshTime = 0; // 記錄上次刷新時間，避免頻繁刷新
   }
 
   async init() {
@@ -381,10 +382,23 @@ class DukshotApp {
       }, 100)
     );
 
-    // 視窗焦點事件
-    window.addEventListener("focus", () => {
-      this.fileManager.refresh(); // 重新載入檔案以防外部變更
-    });
+    // 視窗焦點事件 - 使用防抖避免頻繁重新載入
+    const debouncedRefresh = Utils.debounce(() => {
+      // 只在真的需要時才重新載入（例如：截圖後跳過一次）
+      if (this.skipNextRefresh) {
+        this.skipNextRefresh = false;
+        console.log("Skipped refresh after screenshot");
+        return;
+      }
+      // 檢查是否真的需要刷新
+      const timeSinceLastRefresh = Date.now() - (this.lastRefreshTime || 0);
+      if (timeSinceLastRefresh > 5000) { // 至少間隔5秒
+        this.fileManager.refresh();
+        this.lastRefreshTime = Date.now();
+      }
+    }, 1000); // 1秒防抖
+
+    window.addEventListener("focus", debouncedRefresh);
   }
 
   setupKeyboardShortcuts() {

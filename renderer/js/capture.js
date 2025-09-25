@@ -256,7 +256,7 @@ class CaptureManager {
     }
   }
 
-  // 圖片處理方法
+  // 圖片處理方法 - 優化版本，使用 requestAnimationFrame 確保在適當時機處理
   async processImage(imageData, options = {}) {
     try {
       const {
@@ -272,39 +272,57 @@ class CaptureManager {
 
       return new Promise((resolve, reject) => {
         img.onload = () => {
-          let { width, height } = img;
+          // 使用 requestAnimationFrame 確保在下一幀處理，優化時機
+          requestAnimationFrame(() => {
+            try {
+              let { width, height } = img;
 
-          // 調整尺寸
-          if (resize) {
-            if (resize.width && resize.height) {
-              width = resize.width;
-              height = resize.height;
-            } else if (resize.scale) {
-              width *= resize.scale;
-              height *= resize.scale;
+              // 調整尺寸
+              if (resize) {
+                if (resize.width && resize.height) {
+                  width = resize.width;
+                  height = resize.height;
+                } else if (resize.scale) {
+                  width *= resize.scale;
+                  height *= resize.scale;
+                }
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+
+              // 繪製圖片
+              ctx.drawImage(img, 0, 0, width, height);
+
+              // 添加浮水印
+              if (watermark) {
+                this.addWatermark(ctx, width, height, watermark);
+              }
+
+              // 轉換格式
+              const outputFormat =
+                format === "jpg" ? "image/jpeg" : `image/${format}`;
+              const outputQuality = format === "png" ? undefined : quality / 100;
+
+              // 再次使用 requestAnimationFrame 確保輸出在適當時機
+              requestAnimationFrame(() => {
+                try {
+                  const result = canvas.toDataURL(outputFormat, outputQuality);
+                  resolve(result);
+                } catch (error) {
+                  reject(error);
+                }
+              });
+            } catch (error) {
+              reject(error);
             }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-
-          // 繪製圖片
-          ctx.drawImage(img, 0, 0, width, height);
-
-          // 添加浮水印
-          if (watermark) {
-            this.addWatermark(ctx, width, height, watermark);
-          }
-
-          // 轉換格式
-          const outputFormat =
-            format === "jpg" ? "image/jpeg" : `image/${format}`;
-          const outputQuality = format === "png" ? undefined : quality / 100;
-
-          resolve(canvas.toDataURL(outputFormat, outputQuality));
+          });
         };
 
-        img.onerror = reject;
+        img.onerror = (error) => {
+          console.error("圖片載入失敗:", error);
+          reject(new Error("圖片載入失敗"));
+        };
         img.src = imageData;
       });
     } catch (error) {

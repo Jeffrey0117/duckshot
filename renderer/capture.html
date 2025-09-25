@@ -27,10 +27,18 @@
         cursor: crosshair;
       }
 
+      #maskCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 998;
+      }
+
       .selection-rect {
         position: absolute;
         border: 2px solid #0066ff;
-        background: rgba(0, 102, 255, 0.1);
+        background: transparent;
         pointer-events: none;
         z-index: 1000;
       }
@@ -228,6 +236,7 @@
     <div class="help-text">按住滑鼠左鍵並拖拽選擇截圖區域，按 ESC 取消截圖，右鍵重新抓取或再次取消</div>
 
     <canvas id="captureCanvas"></canvas>
+    <canvas id="maskCanvas"></canvas>
     <div class="selection-rect" id="selectionRect"></div>
     <div class="selection-info" id="selectionInfo"></div>
 
@@ -262,6 +271,8 @@
           console.log('CaptureScreen: 初始化開始');
           this.canvas = document.getElementById("captureCanvas");
           this.ctx = this.canvas.getContext("2d");
+          this.maskCanvas = document.getElementById("maskCanvas");
+          this.maskCtx = this.maskCanvas.getContext("2d");
           this.isSelecting = false;
           this.startX = 0;
           this.startY = 0;
@@ -283,12 +294,14 @@
           // 設定畫布大小為螢幕大小
           this.canvas.width = window.screen.width;
           this.canvas.height = window.screen.height;
-          
+          this.maskCanvas.width = window.screen.width;
+          this.maskCanvas.height = window.screen.height;
+
           console.log('CaptureScreen: 畫布設定完成', this.canvas.width, 'x', this.canvas.height);
 
           // 設定事件監聽器（先設定，以便接收螢幕數據）
           this.setupEventListeners();
-          
+
           // 監聽螢幕數據
           this.listenForScreenData();
         }
@@ -328,8 +341,26 @@
         
         // 顯示初始暗化遮罩
         showInitialMask() {
-          this.maskOverlay.style.background = 'rgba(0, 0, 0, 0.5)';
-          this.maskOverlay.classList.add('active');
+          // 使用 Canvas 繪製全螢幕暗化遮罩
+          this.maskCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+        }
+
+        // 繪製選區遮罩
+        drawMask(x, y, width, height) {
+          // 清除畫布
+          this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+
+          // 繪製全螢幕暗化遮罩
+          this.maskCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+
+          // 使用 destination-out 模式清除選區內的遮罩（挖洞效果）
+          this.maskCtx.globalCompositeOperation = 'destination-out';
+          this.maskCtx.fillRect(x, y, width, height);
+
+          // 重置混合模式
+          this.maskCtx.globalCompositeOperation = 'source-over';
         }
 
         async captureScreen() {
@@ -389,10 +420,7 @@
 
         onMouseDown(event) {
           console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
-          
-          // 開始拖拽時切換到挖洞模式
-          this.maskOverlay.style.background = 'transparent';
-          
+
           this.isSelecting = true;
           this.startX = event.clientX;
           this.startY = event.clientY;
@@ -507,26 +535,11 @@
             return;
           }
 
-          // 顯示遮罩層和格線
-          this.showVisualEffects();
+          // 顯示格線
+          this.showGrid();
 
-          // 更新遮罩層 - 使用四個區域覆蓋未選取部分
-          // 上區域
-          const topRegion = `0px 0px ${x + width}px ${y}px`;
-          // 左區域
-          const leftRegion = `${x}px ${y}px ${x}px ${y + height}px`;
-          // 右區域
-          const rightRegion = `${x + width}px ${y}px ${window.innerWidth}px ${y + height}px`;
-          // 下區域
-          const bottomRegion = `${x}px ${y + height}px ${x + width}px ${window.innerHeight}px`;
-
-          // 使用 box-shadow 創建多個遮罩區域
-          this.maskOverlay.style.boxShadow = `
-            ${topRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7),
-            ${leftRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7),
-            ${rightRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7),
-            ${bottomRegion} 0px 0px 0px 9999px rgba(0, 0, 0, 0.7)
-          `; // 加深遮罩暗度
+          // 使用 Canvas 繪製選區遮罩
+          this.drawMask(x, y, width, height);
 
           // 更新格線位置 - 格線只在選取區域內顯示
           this.gridOverlay.style.left = x + 'px';
@@ -535,14 +548,22 @@
           this.gridOverlay.style.height = height + 'px';
         }
 
-        showVisualEffects() {
-          this.maskOverlay.classList.add('active');
+        showGrid() {
           this.gridOverlay.classList.add('active');
         }
 
-        hideVisualEffects() {
-          this.maskOverlay.classList.remove('active');
+        hideGrid() {
           this.gridOverlay.classList.remove('active');
+        }
+
+        showVisualEffects() {
+          this.showGrid();
+        }
+
+        hideVisualEffects() {
+          this.hideGrid();
+          // 清除遮罩 Canvas
+          this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
         }
 
         showToolbar() {
@@ -571,8 +592,9 @@
           this.selectedRegion = null;
           this.isSelecting = false;
 
-          // 隱藏視覺效果
+          // 隱藏視覺效果並顯示初始遮罩
           this.hideVisualEffects();
+          this.showInitialMask();
         }
 
         async confirmCapture(format = "png") {

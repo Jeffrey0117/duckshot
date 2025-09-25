@@ -10,6 +10,77 @@ class FileManager {
     this.searchQuery = "";
     this.isLoading = false;
     this.lastDirectory = null; // 記錄實際儲存目錄供「開啟資料夾」使用
+    this.thumbnailQueue = []; // 縮圖載入隊列
+    this.isProcessingThumbnails = false;
+  }
+
+  // 新增：分批載入剩餘檔案
+  async loadRemainingBatches(batches, folderLabel) {
+    for (const batch of batches) {
+      const batchFiles = batch.map((f) => {
+        const fileUrl =
+          typeof f.path === "string"
+            ? (f.path.startsWith("file://")
+                ? f.path
+                : "file:///" + f.path.replace(/\\/g, "/"))
+            : "";
+
+        return {
+          id: f.id || Utils.generateId(),
+          name: f.name,
+          path: fileUrl || f.path || "",
+          thumbnail: f.thumbnail || fileUrl,
+          size: f.size || 0,
+          createdAt: f.createdAt || new Date().toISOString(),
+          modifiedAt: f.modifiedAt || new Date().toISOString(),
+          type: f.type || "image/png",
+          folder: folderLabel,
+          dimensions: f.dimensions || { width: 0, height: 0 },
+          needsThumbnail: !f.thumbnail
+        };
+      });
+
+      // 添加到檔案列表
+      batchFiles.forEach(file => {
+        this.files.set(file.id, file);
+      });
+
+      // 通知 UI 更新
+      this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
+      
+      // 給 UI 時間更新
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+
+  // 新增：延遲載入縮圖
+  async loadThumbnailsLazy() {
+    if (this.isProcessingThumbnails) return;
+    this.isProcessingThumbnails = true;
+
+    while (this.thumbnailQueue.length > 0) {
+      const fileId = this.thumbnailQueue.shift();
+      const file = this.files.get(fileId);
+      
+      if (file && file.needsThumbnail && window.electronAPI?.files?.getThumbnail) {
+        try {
+          const thumbnail = await window.electronAPI.files.getThumbnail(file.path);
+          if (thumbnail) {
+            file.thumbnail = thumbnail;
+            file.needsThumbnail = false;
+            // 通知 UI 更新單個檔案
+            this.eventEmitter.emit("thumbnailLoaded", file);
+          }
+        } catch (error) {
+          console.warn("Failed to load thumbnail:", error);
+        }
+        
+        // 避免阻塞 UI
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+
+    this.isProcessingThumbnails = false;
   }
 
   async loadFolder(folderName) {
@@ -50,6 +121,9 @@ class FileManager {
           const folderLabel =
             dirName.toLowerCase() === "desktop" ? "桌面" : (dirName || folderName);
 
+          // 極速載入：立即返回初始批次
+          console.log(`快速載入前 ${res.files.length} 個檔案，總共 ${res.totalCount || res.files.length} 個`);
+          
           // 對齊系統內部檔案結構，讓 UI 可以直接顯示
           const realFiles = res.files.map((f) => {
             // 若無縮圖，將本機路徑轉成 file:/// URL 以供 <img> 使用
@@ -73,6 +147,45 @@ class FileManager {
               dimensions: f.dimensions || { width: 0, height: 0 },
             };
           });
+
+          // 如果有更多檔案，監聽延遲載入
+          if (res.hasMore && window.electronAPI?.on) {
+            // 移除舊的監聽器避免重複
+            window.electronAPI.off?.("more-files-loaded");
+            
+            // 監聽延遲載入的檔案
+            window.electronAPI.on("more-files-loaded", (_event, payload) => {
+              if (payload?.files && Array.isArray(payload.files)) {
+                console.log(`收到延遲載入的 ${payload.files.length} 個檔案`);
+                
+                // 處理延遲載入的檔案
+                payload.files.forEach(f => {
+                  const fileUrl = typeof f.path === "string"
+                    ? (f.path.startsWith("file://") ? f.path : "file:///" + f.path.replace(/\\/g, "/"))
+                    : "";
+                    
+                  const file = {
+                    id: f.id || Utils.generateId(),
+                    name: f.name,
+                    path: fileUrl || f.path || "",
+                    thumbnail: f.thumbnail || fileUrl,
+                    size: f.size || 0,
+                    createdAt: f.createdAt || new Date().toISOString(),
+                    modifiedAt: f.modifiedAt || new Date().toISOString(),
+                    type: f.type || "image/png",
+                    folder: folderLabel,
+                    dimensions: f.dimensions || { width: 0, height: 0 },
+                  };
+                  
+                  // 加入到檔案列表
+                  this.files.set(file.id, file);
+                });
+                
+                // 通知 UI 更新
+                this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
+              }
+            });
+          }
 
           return realFiles;
         }
