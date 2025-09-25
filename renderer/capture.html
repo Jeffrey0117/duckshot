@@ -610,19 +610,6 @@
             .addEventListener("click", this.cancelCapture.bind(this));
         }
 
-        onMouseDown(event) {
-          console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
-
-          this.isSelecting = true;
-          this.startX = event.clientX;
-          this.startY = event.clientY;
-          this.currentX = event.clientX;
-          this.currentY = event.clientY;
-
-          // 隱藏工具列
-          document.getElementById("captureToolbar").style.display = "none";
-          document.querySelector(".help-text").style.display = "none";
-        }
 
         onMouseMove(event) {
           // 更新座標顯示（無論是否在選取）
