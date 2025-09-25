@@ -346,6 +346,49 @@
           this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
         }
 
+        // 繪製延伸線（輔助線）
+        drawExtensionLines(x, y, width, height) {
+          this.maskCtx.save();
+
+          // 設定延伸線樣式
+          this.maskCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          this.maskCtx.lineWidth = 1;
+          this.maskCtx.setLineDash([5, 5]);
+
+          // 開始繪製路徑
+          this.maskCtx.beginPath();
+
+          // 上邊延伸線：從選區上邊延伸到頂部和底部
+          this.maskCtx.moveTo(x, 0);
+          this.maskCtx.lineTo(x, y);
+          this.maskCtx.moveTo(x + width, 0);
+          this.maskCtx.lineTo(x + width, y);
+
+          // 下邊延伸線：從選區下邊延伸到頂部和底部
+          this.maskCtx.moveTo(x, y + height);
+          this.maskCtx.lineTo(x, this.maskCanvas.height);
+          this.maskCtx.moveTo(x + width, y + height);
+          this.maskCtx.lineTo(x + width, this.maskCanvas.height);
+
+          // 左邊延伸線：從選區左邊延伸到左右邊緣
+          this.maskCtx.moveTo(0, y);
+          this.maskCtx.lineTo(x, y);
+          this.maskCtx.moveTo(x + width, y);
+          this.maskCtx.lineTo(this.maskCanvas.width, y);
+
+          // 右邊延伸線：從選區右邊延伸到左右邊緣
+          this.maskCtx.moveTo(0, y + height);
+          this.maskCtx.lineTo(x, y + height);
+          this.maskCtx.moveTo(x + width, y + height);
+          this.maskCtx.lineTo(this.maskCanvas.width, y + height);
+
+          // 繪製所有延伸線
+          this.maskCtx.stroke();
+
+          this.maskCtx.restore();
+        }
+
+        // 繪製選區遮罩
         // 繪製選區遮罩
         drawMask(x, y, width, height) {
           // 清除畫布
@@ -360,6 +403,11 @@
           this.maskCtx.fillRect(x, y, width, height);
 
           // 重置混合模式
+          // 重置混合模式
+          this.maskCtx.globalCompositeOperation = 'source-over';
+
+          // 繪製延伸線
+          this.drawExtensionLines(x, y, width, height);
           this.maskCtx.globalCompositeOperation = 'source-over';
         }
 

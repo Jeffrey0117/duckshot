@@ -299,3 +299,545 @@ drawMask(x, y, width, height) {
 - **良好的效能表現**：降低 CPU 和記憶體使用量
 
 此計畫將顯著提升 Dukshot 區域截圖功能的使用者體驗。
+
+---
+
+# UI/UX 進階改善計畫
+
+## 專案概述
+
+本進階改善計畫旨在進一步提升 Dukshot 截圖工具的使用體驗，新增三個主要功能模組：選區延伸線、尺寸標示與拖曳功能、操作按鈕重新設計。這些改善將讓截圖操作更加直觀、專業且具有現代化的視覺設計。
+
+## Software Design Document (SDD)
+
+### 1. 技術架構設計
+
+#### 1.1 整體系統架構
+
+```mermaid
+flowchart TD
+    A[使用者啟動截圖] --> B[初始化 CaptureScreen 類別]
+    B --> C[載入背景圖片]
+    C --> D[顯示初始遮罩]
+    D --> E[等待使用者拖曳選區]
+    E --> F[開始拖曳事件]
+    F --> G[更新選區座標]
+    G --> H[繪製延伸線]
+    H --> I[更新視覺效果]
+    I --> J[顯示尺寸資訊]
+    J --> K{拖曳結束?}
+    K -->|否| G
+    K -->|是| L[啟用拖曳移動功能]
+    L --> M[顯示重新設計的操作按鈕]
+    M --> N[等待使用者操作]
+```
+
+#### 1.2 模組化設計
+
+**核心模組結構：**
+- `ExtensionLines` - 延伸線繪製模組
+- `DimensionDisplay` - 尺寸標示模組
+- `SelectionDragger` - 拖曳移動模組
+- `ModernToolbar` - 現代化工具列模組
+- `IconManager` - Material Design 圖標管理模組
+
+### 2. UI/UX設計原則
+
+#### 2.1 視覺設計原則
+- **一致性**：所有新功能採用統一的視覺語言
+- **可用性**：優先考慮使用者操作的便利性
+- **現代感**：採用 Material Design 風格圖標
+- **專業感**：提供類似專業截圖軟體的體驗
+
+#### 2.2 互動設計原則
+- **即時反饋**：所有操作提供即時視覺回饋
+- **容錯性**：支援操作的撤銷和重新定位
+- **效率性**：減少不必要的點擊和操作步驟
+
+### 3. 各功能實現方案
+
+#### 3.1 選區延伸線功能
+
+**技術實現：**
+```javascript
+class ExtensionLines {
+  constructor(maskCanvas, maskCtx) {
+    this.maskCanvas = maskCanvas;
+    this.maskCtx = maskCtx;
+    this.lineColor = 'rgba(255, 255, 255, 0.8)';
+    this.lineWidth = 1;
+    this.dashPattern = [5, 3];
+  }
+
+  drawExtensionLines(x, y, width, height) {
+    this.maskCtx.save();
+    this.maskCtx.globalCompositeOperation = 'source-over';
+    this.maskCtx.strokeStyle = this.lineColor;
+    this.maskCtx.lineWidth = this.lineWidth;
+    this.maskCtx.setLineDash(this.dashPattern);
+
+    // 繪製四條延伸線到螢幕邊緣
+    // 頂部延伸線
+    this.maskCtx.beginPath();
+    this.maskCtx.moveTo(x, 0);
+    this.maskCtx.lineTo(x, y);
+    this.maskCtx.moveTo(x + width, 0);
+    this.maskCtx.lineTo(x + width, y);
+    
+    // 底部延伸線
+    this.maskCtx.moveTo(x, y + height);
+    this.maskCtx.lineTo(x, this.maskCanvas.height);
+    this.maskCtx.moveTo(x + width, y + height);
+    this.maskCtx.lineTo(x + width, this.maskCanvas.height);
+    
+    // 左右延伸線
+    this.maskCtx.moveTo(0, y);
+    this.maskCtx.lineTo(x, y);
+    this.maskCtx.moveTo(x + width, y);
+    this.maskCtx.lineTo(this.maskCanvas.width, y);
+    this.maskCtx.moveTo(0, y + height);
+    this.maskCtx.lineTo(x, y + height);
+    this.maskCtx.moveTo(x + width, y + height);
+    this.maskCtx.lineTo(this.maskCanvas.width, y + height);
+    
+    this.maskCtx.stroke();
+    this.maskCtx.restore();
+  }
+}
+```
+
+**設計特色：**
+- 虛線樣式，視覺上不干擾主要內容
+- 半透明白色，在各種背景下都有良好的對比度
+- 延伸至螢幕邊緣，提供精確的對齊參考
+
+#### 3.2 尺寸標示與拖曳功能
+
+**尺寸標示設計：**
+```javascript
+class DimensionDisplay {
+  constructor() {
+    this.displayElement = null;
+    this.isDragging = false;
+    this.dragOffset = { x: 0, y: 0 };
+  }
+
+  createDimensionDisplay(x, y, width, height) {
+    if (!this.displayElement) {
+      this.displayElement = document.createElement('div');
+      this.displayElement.className = 'dimension-display';
+      document.body.appendChild(this.displayElement);
+    }
+
+    this.displayElement.innerHTML = `
+      <div class="dimension-text">w: ${width} h: ${height}</div>
+    `;
+    
+    // 定位在選區右上角
+    this.displayElement.style.left = (x + width + 10) + 'px';
+    this.displayElement.style.top = (y - 10) + 'px';
+    this.displayElement.style.display = 'block';
+  }
+}
+```
+
+**拖曳移動功能：**
+```javascript
+class SelectionDragger {
+  constructor(selectionRect) {
+    this.selectionRect = selectionRect;
+    this.isDragging = false;
+    this.dragStartPos = { x: 0, y: 0 };
+    this.setupDragHandlers();
+  }
+
+  setupDragHandlers() {
+    this.selectionRect.style.cursor = 'move';
+    this.selectionRect.addEventListener('mousedown', this.onDragStart.bind(this));
+    document.addEventListener('mousemove', this.onDragMove.bind(this));
+    document.addEventListener('mouseup', this.onDragEnd.bind(this));
+  }
+
+  onDragStart(e) {
+    e.preventDefault();
+    this.isDragging = true;
+    this.dragStartPos = {
+      x: e.clientX - this.selectionRect.offsetLeft,
+      y: e.clientY - this.selectionRect.offsetTop
+    };
+    this.selectionRect.style.transition = 'none';
+  }
+
+  onDragMove(e) {
+    if (!this.isDragging) return;
+    
+    const newX = e.clientX - this.dragStartPos.x;
+    const newY = e.clientY - this.dragStartPos.y;
+    
+    // 邊界檢查
+    const maxX = window.innerWidth - this.selectionRect.offsetWidth;
+    const maxY = window.innerHeight - this.selectionRect.offsetHeight;
+    
+    const constrainedX = Math.max(0, Math.min(newX, maxX));
+    const constrainedY = Math.max(0, Math.min(newY, maxY));
+    
+    this.selectionRect.style.left = constrainedX + 'px';
+    this.selectionRect.style.top = constrainedY + 'px';
+    
+    // 更新相關視覺效果
+    this.updateVisualEffects(constrainedX, constrainedY);
+  }
+}
+```
+
+#### 3.3 操作按鈕重新設計
+
+**Material Design Icons 整合：**
+```html
+<!-- 新的工具列設計 -->
+<div class="capture-toolbar modern" id="captureToolbar">
+  <div class="toolbar-grid">
+    <button class="toolbar-btn" id="saveJpgBtn" data-tooltip="儲存為 JPG">
+      <svg class="icon"><use href="#icon-image"/></svg>
+    </button>
+    <button class="toolbar-btn" id="savePngBtn" data-tooltip="儲存為 PNG">
+      <svg class="icon"><use href="#icon-file-image"/></svg>
+    </button>
+    <button class="toolbar-btn" id="copyBtn" data-tooltip="複製到剪貼簿">
+      <svg class="icon"><use href="#icon-copy"/></svg>
+    </button>
+    <button class="toolbar-btn" id="uploadBtn" data-tooltip="上傳到雲端">
+      <svg class="icon"><use href="#icon-cloud-upload"/></svg>
+    </button>
+    <button class="toolbar-btn cancel" id="cancelBtn" data-tooltip="取消截圖">
+      <svg class="icon"><use href="#icon-x"/></svg>
+    </button>
+  </div>
+</div>
+```
+
+**CSS 樣式設計：**
+```css
+.capture-toolbar.modern {
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.toolbar-grid {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.toolbar-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.toolbar-btn:hover {
+  background: rgba(74, 144, 226, 0.1);
+  color: #4a90e2;
+  transform: translateY(-1px);
+}
+
+.toolbar-btn:active {
+  transform: translateY(0);
+  background: rgba(74, 144, 226, 0.2);
+}
+
+.toolbar-btn.cancel:hover {
+  background: rgba(220, 38, 127, 0.1);
+  color: #dc267f;
+}
+
+.icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2;
+}
+```
+
+### 4. 介面互動流程
+
+```mermaid
+stateDiagram-v2
+    [*] --> 等待截圖
+    等待截圖 --> 開始拖曳: 按下滑鼠
+    開始拖曳 --> 顯示延伸線: 移動滑鼠
+    顯示延伸線 --> 更新尺寸: 持續拖曳
+    更新尺寸 --> 完成選區: 放開滑鼠
+    完成選區 --> 啟用拖曳: 選區確定
+    啟用拖曳 --> 顯示工具列: 顯示操作按鈕
+    顯示工具列 --> 重新定位: 拖曳選區
+    重新定位 --> 顯示工具列: 更新位置
+    顯示工具列 --> 執行操作: 點擊按鈕
+    執行操作 --> [*]: 完成或取消
+```
+
+## Implementation Plan (TODO List)
+
+### Phase 1: 基礎設施建置 (預估 2-3 天)
+1. **加入 Material Design Icons 依賴**
+   - 下載 Material Design Icons SVG sprite
+   - 整合到專案資源中
+   - 建立圖標組件系統
+
+2. **建立模組化架構**
+   - 創建 `ExtensionLines` 類別
+   - 創建 `DimensionDisplay` 類別
+   - 創建 `SelectionDragger` 類別
+   - 創建 `ModernToolbar` 類別
+
+### Phase 2: 核心功能開發 (預估 4-5 天)
+3. **實作選區延伸線功能**
+   - 在 [`CaptureScreen`](renderer/capture.html:269) 類別中整合延伸線繪製
+   - 修改 [`updateVisualEffects`](renderer/capture.html:531) 方法
+   - 加入延伸線的顯示/隱藏邏輯
+
+4. **實作尺寸標示功能**
+   - 重構 [`updateSelection`](renderer/capture.html:507) 方法
+   - 改善尺寸顯示的位置算法
+   - 加入更美觀的尺寸標示樣式
+
+5. **實作拖曳移動功能**
+   - 為選區元素加入拖曳事件監聽器
+   - 實現邊界檢查和約束邏輯
+   - 確保拖曳過程中視覺效果同步更新
+
+### Phase 3: UI 重新設計 (預估 3-4 天)
+6. **重新設計操作按鈕**
+   - 替換現有的 emoji 按鈕為 SVG 圖標
+   - 實現橫向 flex 布局
+   - 加入 hover 和 active 動畫效果
+   - 整合 tooltip 提示系統
+
+7. **優化視覺設計**
+   - 調整工具列的背景和邊框樣式
+   - 實現 backdrop-filter 模糊效果
+   - 加入微互動動畫
+
+### Phase 4: 整合與優化 (預估 2-3 天)
+8. **功能整合測試**
+   - 確保三個新功能協同工作
+   - 優化效能，避免過度重繪
+   - 處理邊界情況和錯誤狀態
+
+9. **響應式適配**
+   - 不同解析度下的適配測試
+   - 高 DPI 螢幕的圖標清晰度優化
+
+## Testing Strategy
+
+### 1. 單元測試方法
+
+**測試框架選擇：** Jest + Electron Testing Utils
+
+**核心測試項目：**
+```javascript
+// 選區延伸線測試
+describe('ExtensionLines', () => {
+  test('應該正確繪製四條延伸線', () => {
+    const canvas = createMockCanvas();
+    const extensionLines = new ExtensionLines(canvas, canvas.getContext('2d'));
+    extensionLines.drawExtensionLines(100, 100, 200, 150);
+    expect(mockCtx.beginPath).toHaveBeenCalled();
+    expect(mockCtx.stroke).toHaveBeenCalled();
+  });
+});
+
+// 拖曳功能測試
+describe('SelectionDragger', () => {
+  test('應該正確處理邊界約束', () => {
+    const dragger = new SelectionDragger(mockElement);
+    const result = dragger.constrainPosition(-50, -50, 100, 100);
+    expect(result.x).toBe(0);
+    expect(result.y).toBe(0);
+  });
+});
+```
+
+### 2. 視覺測試項目
+
+**自動化視覺回歸測試：**
+- 使用 Playwright 進行螢幕截圖比較
+- 測試不同解析度下的延伸線顯示
+- 驗證拖曳過程中的視覺回饋
+- 檢查工具列在各種位置的顯示效果
+
+**測試場景：**
+- 1920x1080 解析度下的標準測試
+- 4K 解析度下的高 DPI 測試
+- 多螢幕環境下的邊界處理測試
+
+### 3. 使用者體驗測試流程
+
+**測試用戶群：**
+- 內部開發團隊成員
+- 設計師和 UI/UX 專業人員
+- 一般使用者代表
+
+**測試任務：**
+1. 完成一次完整的區域截圖操作
+2. 使用拖曳功能重新定位選區
+3. 嘗試每個工具列按鈕的功能
+4. 在不同背景（亮/暗）下測試延伸線可見性
+
+**評估標準：**
+- 操作直觀性評分 (1-5 分)
+- 視覺美觀度評分 (1-5 分)
+- 功能完整性檢查 (通過/未通過)
+
+### 4. 跨瀏覽器相容性測試
+
+**測試環境：**
+- Windows 11 + 不同版本 Chrome/Edge
+- macOS + Safari/Chrome
+- Linux + Chrome/Firefox
+
+**重點測試項目：**
+- SVG 圖標的渲染一致性
+- backdrop-filter 的瀏覽器支援
+- Canvas 繪製效能差異
+- 拖曳事件的處理差異
+
+## Git Strategy
+
+### 1. 分支管理策略
+
+**主要分支：**
+- `main` - 生產就緒代碼
+- `develop` - 開發整合分支
+
+**功能分支：**
+- `feature/extension-lines` - 選區延伸線功能
+- `feature/dimension-drag` - 尺寸標示與拖曳功能
+- `feature/modern-toolbar` - 操作按鈕重新設計
+- `feature/material-icons` - Material Design Icons 整合
+
+### 2. 提交策略
+
+**提交信息格式：**
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**類型定義：**
+- `feat`: 新功能
+- `fix`: 錯誤修復
+- `style`: 樣式調整
+- `refactor`: 代碼重構
+- `test`: 測試相關
+- `docs`: 文檔更新
+
+**範例提交：**
+```
+feat(capture): 加入選區延伸線功能
+
+- 實作 ExtensionLines 類別
+- 整合到 CaptureScreen 主要流程
+- 加入延伸線的顯示/隱藏邏輯
+
+Closes #123
+```
+
+### 3. Code Review 檢查清單
+
+**功能完整性：**
+- [ ] 新功能按照設計規範實現
+- [ ] 錯誤處理機制完備
+- [ ] 邊界條件處理正確
+
+**程式品質：**
+- [ ] 代碼風格符合專案規範
+- [ ] 適當的註釋和文檔
+- [ ] 無明顯的效能問題
+
+**測試覆蓋：**
+- [ ] 單元測試覆蓋新功能
+- [ ] 整合測試通過
+- [ ] 視覺測試無回歸
+
+### 4. 版本標記建議
+
+**版本號規則：** 遵循 Semantic Versioning (SemVer)
+
+**發布計劃：**
+- `v1.1.0-alpha.1` - Phase 1 完成後的內測版本
+- `v1.1.0-beta.1` - Phase 2-3 完成後的公測版本
+- `v1.1.0` - 正式發布版本
+
+**標記命令：**
+```bash
+git tag -a v1.1.0 -m "發布 UI/UX 進階改善版本
+
+新功能：
+- 選區延伸線輔助對齊
+- 尺寸標示與拖曳重定位
+- Material Design 風格操作按鈕
+- 改善的視覺回饋效果"
+
+git push origin v1.1.0
+```
+
+## 技術依賴更新
+
+### Material Design Icons 整合
+
+**Package.json 更新：**
+```json
+{
+  "devDependencies": {
+    "@mdi/svg": "^7.4.47",
+    "svg-sprite-generator": "^0.8.0"
+  }
+}
+```
+
+**圖標構建腳本：**
+```json
+{
+  "scripts": {
+    "build:icons": "node scripts/build-icon-sprite.js",
+    "prebuild": "npm run build:icons"
+  }
+}
+```
+
+## 預期效果與成果
+
+完成所有改善後，Dukshot 截圖工具將具備：
+
+### 視覺改善
+- **專業的輔助線系統**：提供精確的對齊參考
+- **清晰的尺寸顯示**：即時顯示選區大小資訊
+- **現代化的操作介面**：採用 Material Design 設計語言
+
+### 操作體驗
+- **直觀的拖曳操作**：可重新定位選區而無需重新選擇
+- **一致的圖標語言**：專業的 SVG 圖標提升品牌形象
+- **流暢的動畫效果**：提供即時且舒適的視覺回饋
+
+### 技術提升
+- **模組化的架構設計**：易於維護和擴展
+- **完整的測試覆蓋**：確保功能穩定性
+- **標準化的開發流程**：提升團隊協作效率
+
+這些改善將讓 Dukshot 從基礎截圖工具提升為專業級的螢幕捕獲軟體，為使用者提供更加精確、美觀且高效的截圖體驗。
