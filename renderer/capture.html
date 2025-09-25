@@ -57,76 +57,47 @@
 
       .capture-toolbar {
         position: absolute;
-        background: rgba(255, 255, 255, 0.95);
+        background: rgba(0, 0, 0, 0.7);
         border-radius: 8px;
-        padding: 12px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        padding: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
         z-index: 1002;
         display: none;
-        gap: 4px;
+        gap: 8px;
         align-items: center;
-        flex-direction: column;
+        flex-direction: row;
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
       }
 
-      .capture-toolbar .toolbar-row {
-        display: flex;
-        gap: 4px;
-        align-items: center;
-      }
 
       .capture-btn {
-        background: #0066ff;
+        width: 40px;
+        height: 40px;
+        background: rgba(255, 255, 255, 0.1);
         color: white;
         border: none;
         border-radius: 6px;
-        padding: 8px 12px;
         cursor: pointer;
-        font-size: 14px;
-        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        backdrop-filter: blur(4px);
       }
 
       .capture-btn:hover {
-        background: #0052cc;
+        background: rgba(255, 255, 255, 0.2);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
       }
 
-      .capture-btn.cancel {
-        background: #666;
+      .capture-btn svg {
+        transition: transform 0.2s ease;
       }
 
-      .capture-btn.cancel:hover {
-        background: #555;
-      }
-
-      .capture-btn.save-jpg {
-        background: #28a745;
-      }
-
-      .capture-btn.save-jpg:hover {
-        background: #218838;
-      }
-
-      .capture-btn.save-png {
-        background: #007bff;
-      }
-
-      .capture-btn.save-png:hover {
-        background: #0056b3;
-      }
-
-      .capture-btn.copy-clipboard {
-        background: #6f42c1;
-      }
-
-      .capture-btn.copy-clipboard:hover {
-        background: #5a359a;
-      }
-
-      .capture-btn.upload {
-        background: #fd7e14;
-      }
-
-      .capture-btn.upload:hover {
-        background: #e8680e;
+      .capture-btn:hover svg {
+        transform: scale(1.1);
       }
 
       .help-text {
@@ -265,17 +236,21 @@
     </div>
 
     <div class="capture-toolbar" id="captureToolbar">
-      <div class="toolbar-row">
-        <button class="capture-btn save-jpg" id="saveJpgBtn" title="儲存為 JPG">✅ JPG</button>
-        <button class="capture-btn save-png" id="savePngBtn" title="儲存為 PNG">🖼️ PNG</button>
-      </div>
-      <div class="toolbar-row">
-        <button class="capture-btn copy-clipboard" id="copyBtn" title="複製到剪貼簿">📋 複製</button>
-        <button class="capture-btn upload" id="uploadBtn" title="上傳到 duk.tw (開發中)">☁️ 上傳</button>
-      </div>
-      <div class="toolbar-row">
-        <button class="capture-btn cancel" id="cancelBtn" title="取消截圖">❌ 取消</button>
-      </div>
+      <button class="capture-btn" id="copyBtn" title="複製截圖 (Ctrl+C)">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="capture-btn" id="saveBtn" title="儲存截圖 (Enter)">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="capture-btn" id="cancelBtn" title="取消 (Esc)">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
+        </svg>
+      </button>
            this.isSelecting = false;
            this.startX = 0;
            this.startY = 0;
@@ -625,17 +600,11 @@
 
           // 工具列按鈕事件
           document
-            .getElementById("saveJpgBtn")
-            .addEventListener("click", () => this.confirmCapture("jpg"));
-          document
-            .getElementById("savePngBtn")
-            .addEventListener("click", () => this.confirmCapture("png"));
-          document
             .getElementById("copyBtn")
             .addEventListener("click", this.copyToClipboard.bind(this));
           document
-            .getElementById("uploadBtn")
-            .addEventListener("click", this.uploadToDukTw.bind(this));
+            .getElementById("saveBtn")
+            .addEventListener("click", () => this.confirmCapture("png"));
           document
             .getElementById("cancelBtn")
             .addEventListener("click", this.cancelCapture.bind(this));
@@ -805,14 +774,14 @@
           const toolbar = document.getElementById("captureToolbar");
           const region = this.selectedRegion;
 
-          // 計算工具列位置，確保不超出螢幕
-          let left = region.x + region.width - 200;
+          // 計算工具列位置，確保不超出螢幕 (橫向佈局，寬度約 152px，高度約 56px)
+          let left = region.x + region.width - 152;
           let top = region.y + region.height + 10;
-          
+
           // 邊界檢查
           if (left < 0) left = 10;
-          if (left + 200 > window.innerWidth) left = window.innerWidth - 210;
-          if (top + 150 > window.innerHeight) top = region.y - 160;
+          if (left + 152 > window.innerWidth) left = window.innerWidth - 162;
+          if (top + 56 > window.innerHeight) top = region.y - 66;
           
           toolbar.style.left = left + "px";
           toolbar.style.top = top + "px";
