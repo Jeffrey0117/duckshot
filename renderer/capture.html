@@ -230,6 +230,19 @@
       .coordinate-display.active {
         display: block;
       }
+      /* 尺寸標示樣式 */
+      .size-indicator {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.7);
+        color: #ffffff;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif;
+        z-index: 1005;
+        pointer-events: none;
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -239,6 +252,8 @@
     <canvas id="maskCanvas"></canvas>
     <div class="selection-rect" id="selectionRect"></div>
     <div class="selection-info" id="selectionInfo"></div>
+    <!-- 尺寸標示 -->
+    <div class="size-indicator" id="sizeIndicator"></div>
 
     <!-- 遮罩層 -->
     <div class="mask-overlay" id="maskOverlay"></div>
@@ -261,6 +276,15 @@
       <div class="toolbar-row">
         <button class="capture-btn cancel" id="cancelBtn" title="取消截圖">❌ 取消</button>
       </div>
+           this.isSelecting = false;
+           this.startX = 0;
+           this.startY = 0;
+           this.currentX = 0;
+           this.currentY = 0;
+           this.selectedRegion = null;
+           this.hasRecaptured = false; // 追蹤是否已經重新抓取過
+           this.isDragging = false; // 拖曳狀態
+           this.dragOffset = { x: 0, y: 0 }; // 拖曳偏移
     <!-- 座標顯示區域 -->
     <div class="coordinate-display" id="coordinateDisplay"></div>
     </div>
@@ -271,6 +295,8 @@
           console.log('CaptureScreen: 初始化開始');
           this.canvas = document.getElementById("captureCanvas");
           this.ctx = this.canvas.getContext("2d");
+          // 尺寸標示元素
+          this.sizeIndicator = document.getElementById("sizeIndicator");
           this.maskCanvas = document.getElementById("maskCanvas");
           this.maskCtx = this.maskCanvas.getContext("2d");
           this.isSelecting = false;
@@ -370,6 +396,89 @@
           this.maskCtx.moveTo(x + width, y + height);
           this.maskCtx.lineTo(x + width, this.maskCanvas.height);
 
+        // 繪製尺寸標示
+        drawSizeIndicator(x, y, width, height) {
+          // 計算尺寸標示位置（選區右上角）
+          const indicatorX = x + width + 10;
+          const indicatorY = y - 10;
+        // 檢查點是否在選區內
+        isInSelection(x, y) {
+          if (!this.selectedRegion) return false;
+
+          const { x: regionX, y: regionY, width, height } = this.selectedRegion;
+          return x >= regionX && x <= regionX + width && y >= regionY && y <= regionY + height;
+        }
+
+          // 設定尺寸標示內容和位置
+          this.sizeIndicator.textContent = `w: ${width}px h: ${height}px`;
+          this.sizeIndicator.style.left = indicatorX + 'px';
+        // 開始拖曳
+        startDragging(event) {
+          this.isDragging = true;
+          this.dragOffset.x = event.clientX - this.selectedRegion.x;
+          this.dragOffset.y = event.clientY - this.selectedRegion.y;
+
+          // 設置游標為 move
+          document.body.style.cursor = 'move';
+
+          // 隱藏工具列
+          document.getElementById("captureToolbar").style.display = "none";
+        }
+          this.sizeIndicator.style.top = indicatorY + 'px';
+        // 更新拖曳位置
+        updateDragPosition(event) {
+          if (!this.isDragging || !this.selectedRegion) return;
+
+          const newX = event.clientX - this.dragOffset.x;
+          const newY = event.clientY - this.dragOffset.y;
+
+          // 邊界檢查，防止拖出螢幕
+          const maxX = window.innerWidth - this.selectedRegion.width;
+          const maxY = window.innerHeight - this.selectedRegion.height;
+          const constrainedX = Math.max(0, Math.min(newX, maxX));
+          const constrainedY = Math.max(0, Math.min(newY, maxY));
+
+          // 更新選區位置
+          this.selectedRegion.x = constrainedX;
+          this.selectedRegion.y = constrainedY;
+
+        // 結束拖曳
+        endDragging() {
+          if (!this.isDragging) return;
+
+          this.isDragging = false;
+          document.body.style.cursor = 'crosshair';
+
+          // 重新顯示工具列
+          this.showToolbar();
+        }
+          // 更新所有視覺元素
+        // 更新選區視覺元素
+        updateSelectionVisuals() {
+          if (!this.selectedRegion) return;
+
+          const { x, y, width, height } = this.selectedRegion;
+
+          // 更新選區矩形
+          const rect = document.getElementById("selectionRect");
+          rect.style.left = x + "px";
+          rect.style.top = y + "px";
+
+          // 更新選區資訊
+          const info = document.getElementById("selectionInfo");
+          info.style.left = x + width + 10 + "px";
+          info.style.top = y + "px";
+
+          // 更新視覺效果
+          this.updateVisualEffects(x, y, width, height);
+
+          // 更新尺寸標示
+          this.drawSizeIndicator(x, y, width, height);
+        }
+          this.updateSelectionVisuals();
+        }
+          this.sizeIndicator.style.display = 'block';
+        }
           // 左邊延伸線：從選區左邊延伸到左右邊緣
           this.maskCtx.moveTo(0, y);
           this.maskCtx.lineTo(x, y);
@@ -388,6 +497,23 @@
           this.maskCtx.restore();
         }
 
+        onMouseMove(event) {
+          // 更新座標顯示（無論是否在選取）
+          this.updateCoordinateDisplay(event);
+
+          // 如果正在拖曳，更新拖曳位置
+          if (this.isDragging) {
+            this.updateDragPosition(event);
+            return;
+          }
+
+          if (!this.isSelecting) return;
+
+          this.currentX = event.clientX;
+          this.currentY = event.clientY;
+
+          this.updateSelection();
+        }
         // 繪製選區遮罩
         // 繪製選區遮罩
         drawMask(x, y, width, height) {
@@ -396,6 +522,36 @@
 
           // 繪製全螢幕暗化遮罩
           this.maskCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        onMouseUp(event) {
+          // 如果正在拖曳，結束拖曳
+          if (this.isDragging) {
+            this.endDragging();
+            return;
+          }
+
+          if (!this.isSelecting) return;
+
+          this.isSelecting = false;
+
+          const width = Math.abs(this.currentX - this.startX);
+          const height = Math.abs(this.currentY - this.startY);
+
+          if (width > 10 && height > 10) {
+            this.selectedRegion = {
+              x: Math.min(this.startX, this.currentX),
+              y: Math.min(this.startY, this.currentY),
+              width: width,
+              height: height,
+            };
+
+            this.showToolbar();
+          } else {
+            this.clearSelection();
+          }
+
+          // 更新座標顯示
+          this.updateCoordinateDisplay(event);
+        }
           this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
 
           // 使用 destination-out 模式清除選區內的遮罩（挖洞效果）
@@ -429,6 +585,25 @@
 
         setupEventListeners() {
           // 滑鼠事件
+        onMouseDown(event) {
+          console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
+
+          // 檢查是否點擊在選區內且選區已確定
+          if (this.selectedRegion && this.isInSelection(event.clientX, event.clientY)) {
+            this.startDragging(event);
+            return;
+          }
+
+          this.isSelecting = true;
+          this.startX = event.clientX;
+          this.startY = event.clientY;
+          this.currentX = event.clientX;
+          this.currentY = event.clientY;
+
+          // 隱藏工具列
+          document.getElementById("captureToolbar").style.display = "none";
+          document.querySelector(".help-text").style.display = "none";
+        }
           this.canvas.addEventListener(
             "mousedown",
             this.onMouseDown.bind(this)
@@ -546,6 +721,8 @@
             this.clearSelection();
             this.captureScreen();
             this.hasRecaptured = true;
+          // 顯示尺寸標示
+          this.drawSizeIndicator(x, y, width, height);
           } else {
             // 第二次右鍵：取消截圖
             this.cancelCapture();
@@ -580,6 +757,13 @@
           // 如果沒有選取區域，隱藏視覺效果
           if (width < 10 || height < 10) {
             this.hideVisualEffects();
+        hideVisualEffects() {
+          this.hideGrid();
+          // 清除遮罩 Canvas
+          this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+          // 隱藏尺寸標示
+          this.sizeIndicator.style.display = 'none';
+        }
             return;
           }
 
@@ -604,6 +788,8 @@
           this.gridOverlay.classList.remove('active');
         }
 
+          document.getElementById("captureToolbar").style.display = "none";
+          document.getElementById("sizeIndicator").style.display = "none";
         showVisualEffects() {
           this.showGrid();
         }
