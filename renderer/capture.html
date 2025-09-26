@@ -472,22 +472,26 @@
           this.maskCtx.restore();
         }
 
-        onMouseMove(event) {
-          // 更新座標顯示（無論是否在選取）
-          this.updateCoordinateDisplay(event);
+        onMouseMove = (event) => {
+          try {
+            // 更新座標顯示（無論是否在選取）
+            this.updateCoordinateDisplay(event);
 
-          // 如果正在拖曳，更新拖曳位置
-          if (this.isDragging) {
-            this.updateDragPosition(event);
-            return;
+            // 如果正在拖曳，更新拖曳位置
+            if (this.isDragging) {
+              this.updateDragPosition(event);
+              return;
+            }
+
+            if (!this.isSelecting) return;
+
+            this.currentX = event.clientX;
+            this.currentY = event.clientY;
+
+            this.updateSelection();
+          } catch (error) {
+            console.error('CaptureScreen: onMouseMove 錯誤', error);
           }
-
-          if (!this.isSelecting) return;
-
-          this.currentX = event.clientX;
-          this.currentY = event.clientY;
-
-          this.updateSelection();
         }
         // 繪製選區遮罩
         // 繪製選區遮罩
@@ -497,35 +501,63 @@
 
           // 繪製全螢幕暗化遮罩
           this.maskCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        onMouseUp(event) {
-          // 如果正在拖曳，結束拖曳
-          if (this.isDragging) {
-            this.endDragging();
-            return;
+        onMouseUp = (event) => {
+          try {
+            // 如果正在拖曳，結束拖曳
+            if (this.isDragging) {
+              this.endDragging();
+              return;
+            }
+
+            if (!this.isSelecting) return;
+
+            this.isSelecting = false;
+
+            const width = Math.abs(this.currentX - this.startX);
+            const height = Math.abs(this.currentY - this.startY);
+
+            if (width > 10 && height > 10) {
+              this.selectedRegion = {
+                x: Math.min(this.startX, this.currentX),
+                y: Math.min(this.startY, this.currentY),
+                width: width,
+                height: height,
+              };
+
+              this.showToolbar();
+            } else {
+              this.clearSelection();
+            }
+
+            // 更新座標顯示
+            this.updateCoordinateDisplay(event);
+          } catch (error) {
+            console.error('CaptureScreen: onMouseUp 錯誤', error);
           }
+        }
 
-          if (!this.isSelecting) return;
+        onMouseDown = (event) => {
+          try {
+            console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
 
-          this.isSelecting = false;
+            // 檢查是否點擊在選區內且選區已確定
+            if (this.selectedRegion && this.isInSelection(event.clientX, event.clientY)) {
+              this.startDragging(event);
+              return;
+            }
 
-          const width = Math.abs(this.currentX - this.startX);
-          const height = Math.abs(this.currentY - this.startY);
+            this.isSelecting = true;
+            this.startX = event.clientX;
+            this.startY = event.clientY;
+            this.currentX = event.clientX;
+            this.currentY = event.clientY;
 
-          if (width > 10 && height > 10) {
-            this.selectedRegion = {
-              x: Math.min(this.startX, this.currentX),
-              y: Math.min(this.startY, this.currentY),
-              width: width,
-              height: height,
-            };
-
-            this.showToolbar();
-          } else {
-            this.clearSelection();
+            // 隱藏工具列
+            document.getElementById("captureToolbar").style.display = "none";
+            document.querySelector(".help-text").style.display = "none";
+          } catch (error) {
+            console.error('CaptureScreen: onMouseDown 錯誤', error);
           }
-
-          // 更新座標顯示
-          this.updateCoordinateDisplay(event);
         }
           this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
 
@@ -559,94 +591,41 @@
         }
 
         setupEventListeners() {
-          // 滑鼠事件
-        onMouseDown(event) {
-          console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
+          try {
+            // 檢查 Canvas 元素是否存在
+            if (!this.canvas) {
+              console.error('CaptureScreen: Canvas 元素不存在');
+              return;
+            }
 
-          // 檢查是否點擊在選區內且選區已確定
-          if (this.selectedRegion && this.isInSelection(event.clientX, event.clientY)) {
-            this.startDragging(event);
-            return;
+            // 滑鼠事件
+            this.canvas.addEventListener("mousedown", this.onMouseDown);
+            this.canvas.addEventListener("mousemove", this.onMouseMove);
+            this.canvas.addEventListener("mouseup", this.onMouseUp);
+
+            // 右鍵事件
+            this.canvas.addEventListener("contextmenu", this.onContextMenu);
+
+            // 鍵盤事件
+            document.addEventListener("keydown", this.onKeyDown);
+
+            // 工具列按鈕事件
+            const copyBtn = document.getElementById("copyBtn");
+            const saveBtn = document.getElementById("saveBtn");
+            const cancelBtn = document.getElementById("cancelBtn");
+
+            if (copyBtn) copyBtn.addEventListener("click", this.copyToClipboard);
+            if (saveBtn) saveBtn.addEventListener("click", () => this.confirmCapture("png"));
+            if (cancelBtn) cancelBtn.addEventListener("click", this.cancelCapture);
+
+            console.log('CaptureScreen: 事件監聽器設定完成');
+          } catch (error) {
+            console.error('CaptureScreen: 設定事件監聽器失敗', error);
           }
-
-          this.isSelecting = true;
-          this.startX = event.clientX;
-          this.startY = event.clientY;
-          this.currentX = event.clientX;
-          this.currentY = event.clientY;
-
-          // 隱藏工具列
-          document.getElementById("captureToolbar").style.display = "none";
-          document.querySelector(".help-text").style.display = "none";
-        }
-          this.canvas.addEventListener(
-            "mousedown",
-            this.onMouseDown.bind(this)
-          );
-          this.canvas.addEventListener(
-            "mousemove",
-            this.onMouseMove.bind(this)
-          );
-          this.canvas.addEventListener("mouseup", this.onMouseUp.bind(this));
-
-          // 右鍵事件
-          this.canvas.addEventListener(
-            "contextmenu",
-            this.onContextMenu.bind(this)
-          );
-
-          // 鍵盤事件
-          document.addEventListener("keydown", this.onKeyDown.bind(this));
-
-          // 工具列按鈕事件
-          document
-            .getElementById("copyBtn")
-            .addEventListener("click", this.copyToClipboard.bind(this));
-          document
-            .getElementById("saveBtn")
-            .addEventListener("click", () => this.confirmCapture("png"));
-          document
-            .getElementById("cancelBtn")
-            .addEventListener("click", this.cancelCapture.bind(this));
         }
 
 
-        onMouseMove(event) {
-          // 更新座標顯示（無論是否在選取）
-          this.updateCoordinateDisplay(event);
-          
-          if (!this.isSelecting) return;
 
-          this.currentX = event.clientX;
-          this.currentY = event.clientY;
-
-          this.updateSelection();
-        }
-
-        onMouseUp(event) {
-          if (!this.isSelecting) return;
-
-          this.isSelecting = false;
-
-          const width = Math.abs(this.currentX - this.startX);
-          const height = Math.abs(this.currentY - this.startY);
-
-          if (width > 10 && height > 10) {
-            this.selectedRegion = {
-              x: Math.min(this.startX, this.currentX),
-              y: Math.min(this.startY, this.currentY),
-              width: width,
-              height: height,
-            };
-
-            this.showToolbar();
-          } else {
-            this.clearSelection();
-          }
-          
-          // 更新座標顯示
-          this.updateCoordinateDisplay(event);
-        }
 
         updateCoordinateDisplay(event) {
           // 顯示座標，選取時顯示區域資訊
@@ -661,7 +640,7 @@
           this.coordinateDisplay.classList.add("active");
         }
 
-        onKeyDown(event) {
+        onKeyDown = (event) => {
           if (event.key === "Escape") {
             this.cancelCapture();
           } else if (event.key === "Enter" && this.selectedRegion) {
@@ -669,7 +648,7 @@
           }
         }
 
-        onContextMenu(event) {
+        onContextMenu = (event) => {
           event.preventDefault(); // 防止預設右鍵選單
 
           if (!this.hasRecaptured) {
@@ -831,7 +810,7 @@
           }
         }
 
-        async copyToClipboard() {
+        copyToClipboard = async () => {
           if (!this.selectedRegion) return;
 
           try {
@@ -879,7 +858,7 @@
           alert("上傳到 duk.tw 功能開發中，敬請期待！");
         }
 
-        cancelCapture() {
+        cancelCapture = () => {
           window.close();
         }
       }
