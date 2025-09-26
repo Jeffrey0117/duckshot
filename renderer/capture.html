@@ -493,8 +493,9 @@
           this.maskCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
           this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
 
-          // 使用 destination-out 模式清除選區內的遮罩（挖洞效果）
+          // 使用 destination-out 模式完全清除選區內的遮罩（挖洞效果）
           this.maskCtx.globalCompositeOperation = 'destination-out';
+          this.maskCtx.fillStyle = 'rgba(0, 0, 0, 1)'; // 使用完全不透明確保完全清除
           this.maskCtx.fillRect(x, y, width, height);
 
           // 重置混合模式
