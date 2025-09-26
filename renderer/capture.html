@@ -251,16 +251,7 @@
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
         </svg>
       </button>
-           this.isSelecting = false;
-           this.startX = 0;
-           this.startY = 0;
-           this.currentX = 0;
-           this.currentY = 0;
-           this.selectedRegion = null;
-           this.hasRecaptured = false; // 追蹤是否已經重新抓取過
-           this.isDragging = false; // 拖曳狀態
-           this.dragOffset = { x: 0, y: 0 }; // 拖曳偏移
-    <!-- 座標顯示區域 -->
+     <!-- 座標顯示區域 -->
     <div class="coordinate-display" id="coordinateDisplay"></div>
     </div>
 
@@ -292,6 +283,7 @@
         }
 
         async init() {
+          console.log('CaptureScreen: init() 開始');
           // 設定畫布大小為螢幕大小
           this.canvas.width = window.screen.width;
           this.canvas.height = window.screen.height;
@@ -371,22 +363,24 @@
           this.maskCtx.moveTo(x + width, y + height);
           this.maskCtx.lineTo(x + width, this.maskCanvas.height);
 
-        // 繪製尺寸標示
-        drawSizeIndicator(x, y, width, height) {
-          // 計算尺寸標示位置（選區右上角）
-          const indicatorX = x + width + 10;
-          const indicatorY = y - 10;
-        // 檢查點是否在選區內
-        isInSelection(x, y) {
-          if (!this.selectedRegion) return false;
+          // 左邊延伸線：從選區左邊延伸到左右邊緣
+          this.maskCtx.moveTo(0, y);
+          this.maskCtx.lineTo(x, y);
+          this.maskCtx.moveTo(x + width, y);
+          this.maskCtx.lineTo(this.maskCanvas.width, y);
 
-          const { x: regionX, y: regionY, width, height } = this.selectedRegion;
-          return x >= regionX && x <= regionX + width && y >= regionY && y <= regionY + height;
+          // 右邊延伸線：從選區右邊延伸到左右邊緣
+          this.maskCtx.moveTo(0, y + height);
+          this.maskCtx.lineTo(x, y + height);
+          this.maskCtx.moveTo(x + width, y + height);
+          this.maskCtx.lineTo(this.maskCanvas.width, y + height);
+
+          // 繪製所有延伸線
+          this.maskCtx.stroke();
+
+          this.maskCtx.restore();
         }
 
-          // 設定尺寸標示內容和位置
-          this.sizeIndicator.textContent = `w: ${width}px h: ${height}px`;
-          this.sizeIndicator.style.left = indicatorX + 'px';
         // 開始拖曳
         startDragging(event) {
           this.isDragging = true;
@@ -399,7 +393,7 @@
           // 隱藏工具列
           document.getElementById("captureToolbar").style.display = "none";
         }
-          this.sizeIndicator.style.top = indicatorY + 'px';
+
         // 更新拖曳位置
         updateDragPosition(event) {
           if (!this.isDragging || !this.selectedRegion) return;
@@ -417,6 +411,10 @@
           this.selectedRegion.x = constrainedX;
           this.selectedRegion.y = constrainedY;
 
+          // 更新所有視覺元素
+          this.updateSelectionVisuals();
+        }
+
         // 結束拖曳
         endDragging() {
           if (!this.isDragging) return;
@@ -427,7 +425,7 @@
           // 重新顯示工具列
           this.showToolbar();
         }
-          // 更新所有視覺元素
+
         // 更新選區視覺元素
         updateSelectionVisuals() {
           if (!this.selectedRegion) return;
@@ -449,27 +447,6 @@
 
           // 更新尺寸標示
           this.drawSizeIndicator(x, y, width, height);
-        }
-          this.updateSelectionVisuals();
-        }
-          this.sizeIndicator.style.display = 'block';
-        }
-          // 左邊延伸線：從選區左邊延伸到左右邊緣
-          this.maskCtx.moveTo(0, y);
-          this.maskCtx.lineTo(x, y);
-          this.maskCtx.moveTo(x + width, y);
-          this.maskCtx.lineTo(this.maskCanvas.width, y);
-
-          // 右邊延伸線：從選區右邊延伸到左右邊緣
-          this.maskCtx.moveTo(0, y + height);
-          this.maskCtx.lineTo(x, y + height);
-          this.maskCtx.moveTo(x + width, y + height);
-          this.maskCtx.lineTo(this.maskCanvas.width, y + height);
-
-          // 繪製所有延伸線
-          this.maskCtx.stroke();
-
-          this.maskCtx.restore();
         }
 
         onMouseMove = (event) => {
@@ -494,13 +471,25 @@
           }
         }
         // 繪製選區遮罩
-        // 繪製選區遮罩
         drawMask(x, y, width, height) {
           // 清除畫布
           this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
 
           // 繪製全螢幕暗化遮罩
           this.maskCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+
+          // 使用 destination-out 模式清除選區內的遮罩（挖洞效果）
+          this.maskCtx.globalCompositeOperation = 'destination-out';
+          this.maskCtx.fillRect(x, y, width, height);
+
+          // 重置混合模式
+          this.maskCtx.globalCompositeOperation = 'source-over';
+
+          // 繪製延伸線
+          this.drawExtensionLines(x, y, width, height);
+        }
+
         onMouseUp = (event) => {
           try {
             // 如果正在拖曳，結束拖曳
@@ -559,20 +548,6 @@
             console.error('CaptureScreen: onMouseDown 錯誤', error);
           }
         }
-          this.maskCtx.fillRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
-
-          // 使用 destination-out 模式清除選區內的遮罩（挖洞效果）
-          this.maskCtx.globalCompositeOperation = 'destination-out';
-          this.maskCtx.fillRect(x, y, width, height);
-
-          // 重置混合模式
-          // 重置混合模式
-          this.maskCtx.globalCompositeOperation = 'source-over';
-
-          // 繪製延伸線
-          this.drawExtensionLines(x, y, width, height);
-          this.maskCtx.globalCompositeOperation = 'source-over';
-        }
 
         async captureScreen() {
           try {
@@ -591,6 +566,7 @@
         }
 
         setupEventListeners() {
+          console.log('CaptureScreen: setupEventListeners 開始');
           try {
             // 檢查 Canvas 元素是否存在
             if (!this.canvas) {
@@ -619,6 +595,7 @@
             if (cancelBtn) cancelBtn.addEventListener("click", this.cancelCapture);
 
             console.log('CaptureScreen: 事件監聽器設定完成');
+            console.log('CaptureScreen: setupEventListeners 結束');
           } catch (error) {
             console.error('CaptureScreen: 設定事件監聽器失敗', error);
           }
@@ -656,8 +633,6 @@
             this.clearSelection();
             this.captureScreen();
             this.hasRecaptured = true;
-          // 顯示尺寸標示
-          this.drawSizeIndicator(x, y, width, height);
           } else {
             // 第二次右鍵：取消截圖
             this.cancelCapture();
@@ -692,13 +667,6 @@
           // 如果沒有選取區域，隱藏視覺效果
           if (width < 10 || height < 10) {
             this.hideVisualEffects();
-        hideVisualEffects() {
-          this.hideGrid();
-          // 清除遮罩 Canvas
-          this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
-          // 隱藏尺寸標示
-          this.sizeIndicator.style.display = 'none';
-        }
             return;
           }
 
@@ -723,8 +691,6 @@
           this.gridOverlay.classList.remove('active');
         }
 
-          document.getElementById("captureToolbar").style.display = "none";
-          document.getElementById("sizeIndicator").style.display = "none";
         showVisualEffects() {
           this.showGrid();
         }
@@ -733,6 +699,8 @@
           this.hideGrid();
           // 清除遮罩 Canvas
           this.maskCtx.clearRect(0, 0, this.maskCanvas.width, this.maskCanvas.height);
+          // 隱藏尺寸標示
+          this.sizeIndicator.style.display = 'none';
         }
 
         showToolbar() {
