@@ -246,6 +246,11 @@
           <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
         </svg>
       </button>
+      <button class="capture-btn" id="uploadBtn" title="上傳截圖">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" fill="currentColor"/>
+        </svg>
+      </button>
       <button class="capture-btn" id="cancelBtn" title="取消 (Esc)">
         <svg viewBox="0 0 24 24" width="24" height="24">
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
@@ -481,40 +486,6 @@
           }
         }
 
-        onMouseUp = (event) => {
-          try {
-            // 如果正在拖曳，結束拖曳
-            if (this.isDragging) {
-              this.endDragging();
-              return;
-            }
-
-            if (!this.isSelecting) return;
-
-            this.isSelecting = false;
-
-            const width = Math.abs(this.currentX - this.startX);
-            const height = Math.abs(this.currentY - this.startY);
-
-            if (width > 10 && height > 10) {
-              this.selectedRegion = {
-                x: Math.min(this.startX, this.currentX),
-                y: Math.min(this.startY, this.currentY),
-                width: width,
-                height: height,
-              };
-
-              this.showToolbar();
-            } else {
-              this.clearSelection();
-            }
-
-            // 更新座標顯示
-            this.updateCoordinateDisplay(event);
-          } catch (error) {
-            console.error('CaptureScreen: onMouseUp 錯誤', error);
-          }
-        }
         // 繪製選區遮罩
         drawMask(x, y, width, height) {
           // 清除畫布
@@ -633,10 +604,12 @@
             // 工具列按鈕事件
             const copyBtn = document.getElementById("copyBtn");
             const saveBtn = document.getElementById("saveBtn");
+            const uploadBtn = document.getElementById("uploadBtn");
             const cancelBtn = document.getElementById("cancelBtn");
 
             if (copyBtn) copyBtn.addEventListener("click", this.copyToClipboard);
             if (saveBtn) saveBtn.addEventListener("click", () => this.confirmCapture("png"));
+            if (uploadBtn) uploadBtn.addEventListener("click", this.uploadToDukTw);
             if (cancelBtn) cancelBtn.addEventListener("click", this.cancelCapture);
 
             console.log('CaptureScreen: 事件監聽器設定完成');
@@ -752,13 +725,13 @@
           const toolbar = document.getElementById("captureToolbar");
           const region = this.selectedRegion;
 
-          // 計算工具列位置，確保不超出螢幕 (橫向佈局，寬度約 152px，高度約 56px)
-          let left = region.x + region.width - 152;
+          // 計算工具列位置，確保不超出螢幕 (橫向佈局，寬度約 200px，高度約 56px)
+          let left = region.x + region.width - 200;
           let top = region.y + region.height + 10;
 
           // 邊界檢查
           if (left < 0) left = 10;
-          if (left + 152 > window.innerWidth) left = window.innerWidth - 162;
+          if (left + 200 > window.innerWidth) left = window.innerWidth - 210;
           if (top + 56 > window.innerHeight) top = region.y - 66;
           
           toolbar.style.left = left + "px";
