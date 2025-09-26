@@ -270,6 +270,9 @@
           this.startY = 0;
           this.currentX = 0;
           this.currentY = 0;
+           this.selectedRegion = null;
+           this.isDragging = false;
+           this.dragOffset = { x: 0, y: 0 };
           this.selectedRegion = null;
           this.hasRecaptured = false; // 追蹤是否已經重新抓取過
 
@@ -379,52 +382,59 @@
           this.maskCtx.stroke();
 
           this.maskCtx.restore();
-        }
+       }
 
-        // 開始拖曳
-        startDragging(event) {
-          this.isDragging = true;
-          this.dragOffset.x = event.clientX - this.selectedRegion.x;
-          this.dragOffset.y = event.clientY - this.selectedRegion.y;
+       // 開始拖曳
+       startDragging(event) {
+         this.isDragging = true;
+         this.dragOffset.x = event.clientX - this.selectedRegion.x;
+         this.dragOffset.y = event.clientY - this.selectedRegion.y;
 
-          // 設置游標為 move
-          document.body.style.cursor = 'move';
+         // 設置游標為 move
+         document.body.style.cursor = 'move';
 
-          // 隱藏工具列
-          document.getElementById("captureToolbar").style.display = "none";
-        }
+         // 隱藏工具列
+         document.getElementById("captureToolbar").style.display = "none";
+       }
 
-        // 更新拖曳位置
-        updateDragPosition(event) {
-          if (!this.isDragging || !this.selectedRegion) return;
+       // 更新拖曳位置
+       updateDragPosition(event) {
+         if (!this.isDragging || !this.selectedRegion) return;
 
-          const newX = event.clientX - this.dragOffset.x;
-          const newY = event.clientY - this.dragOffset.y;
+         const newX = event.clientX - this.dragOffset.x;
+         const newY = event.clientY - this.dragOffset.y;
 
-          // 邊界檢查，防止拖出螢幕
-          const maxX = window.innerWidth - this.selectedRegion.width;
-          const maxY = window.innerHeight - this.selectedRegion.height;
-          const constrainedX = Math.max(0, Math.min(newX, maxX));
-          const constrainedY = Math.max(0, Math.min(newY, maxY));
+         // 邊界檢查，防止拖出螢幕
+         const maxX = window.innerWidth - this.selectedRegion.width;
+         const maxY = window.innerHeight - this.selectedRegion.height;
+         const constrainedX = Math.max(0, Math.min(newX, maxX));
+         const constrainedY = Math.max(0, Math.min(newY, maxY));
 
-          // 更新選區位置
-          this.selectedRegion.x = constrainedX;
-          this.selectedRegion.y = constrainedY;
+         // 更新選區位置
+         this.selectedRegion.x = constrainedX;
+         this.selectedRegion.y = constrainedY;
 
-          // 更新所有視覺元素
-          this.updateSelectionVisuals();
-        }
+         // 更新選區視覺元素
+         this.updateSelectionVisuals();
+       }
 
-        // 結束拖曳
-        endDragging() {
-          if (!this.isDragging) return;
+       // 檢查點是否在選區內
+       isInSelection(x, y) {
+         if (!this.selectedRegion) return false;
+         const { x: rx, y: ry, width, height } = this.selectedRegion;
+         return x >= rx && x <= rx + width && y >= ry && y <= ry + height;
+       }
 
-          this.isDragging = false;
-          document.body.style.cursor = 'crosshair';
+       // 結束拖曳
+       endDragging() {
+         if (!this.isDragging) return;
 
-          // 重新顯示工具列
-          this.showToolbar();
-        }
+         this.isDragging = false;
+         document.body.style.cursor = 'crosshair';
+
+         // 重新顯示工具列
+         this.showToolbar();
+       }
 
         // 更新選區視覺元素
         updateSelectionVisuals() {
@@ -468,6 +478,41 @@
             this.updateSelection();
           } catch (error) {
             console.error('CaptureScreen: onMouseMove 錯誤', error);
+          }
+        }
+
+        onMouseUp = (event) => {
+          try {
+            // 如果正在拖曳，結束拖曳
+            if (this.isDragging) {
+              this.endDragging();
+              return;
+            }
+
+            if (!this.isSelecting) return;
+
+            this.isSelecting = false;
+
+            const width = Math.abs(this.currentX - this.startX);
+            const height = Math.abs(this.currentY - this.startY);
+
+            if (width > 10 && height > 10) {
+              this.selectedRegion = {
+                x: Math.min(this.startX, this.currentX),
+                y: Math.min(this.startY, this.currentY),
+                width: width,
+                height: height,
+              };
+
+              this.showToolbar();
+            } else {
+              this.clearSelection();
+            }
+
+            // 更新座標顯示
+            this.updateCoordinateDisplay(event);
+          } catch (error) {
+            console.error('CaptureScreen: onMouseUp 錯誤', error);
           }
         }
         // 繪製選區遮罩
@@ -605,16 +650,15 @@
 
 
         updateCoordinateDisplay(event) {
-          // 顯示座標，選取時顯示區域資訊
+          // 只在沒有選區時顯示滑鼠座標，選區確定後隱藏座標顯示
           if (this.selectedRegion) {
-            const { width, height } = this.selectedRegion;
-            this.coordinateDisplay.textContent = `區域：${width} × ${height}`;
+            this.coordinateDisplay.classList.remove("active");
           } else {
             const x = event.clientX;
             const y = event.clientY;
             this.coordinateDisplay.textContent = `座標：${x}, ${y}`;
+            this.coordinateDisplay.classList.add("active");
           }
-          this.coordinateDisplay.classList.add("active");
         }
 
         onKeyDown = (event) => {
