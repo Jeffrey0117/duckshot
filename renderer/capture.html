@@ -279,6 +279,9 @@
           this.selectedRegion = null;
           this.hasRecaptured = false; // 追蹤是否已經重新抓取過
 
+          // 影像平滑策略（可切換）：預設關閉以避免文字插值模糊
+          this.smoothingEnabled = false;
+
           // 遮罩和格線元素
           this.maskOverlay = document.getElementById("maskOverlay");
           this.gridOverlay = document.getElementById("gridOverlay");
@@ -355,9 +358,9 @@
           this.ctx.scale(dpr, dpr);
           this.maskCtx.scale(dpr, dpr);
           
-          // 設置圖片渲染品質
-          this.ctx.imageSmoothingEnabled = true;
-          this.ctx.imageSmoothingQuality = 'high';
+          // 設置圖片渲染品質（可切換）
+          this.ctx.imageSmoothingEnabled = this.smoothingEnabled;
+          this.ctx.imageSmoothingQuality = this.smoothingEnabled ? 'high' : 'low';
           
           console.log('=== Canvas DPI 設置 ===');
           console.log('Device Pixel Ratio:', dpr);
@@ -396,13 +399,15 @@
             
             console.log('CaptureScreen: 繪製背景圖片');
             
-            // 使用高品質的繪製方式
+            // 使用繪製方式（依 smoothingEnabled）
             this.ctx.save();
+            this.ctx.imageSmoothingEnabled = this.smoothingEnabled;
+            this.ctx.imageSmoothingQuality = this.smoothingEnabled ? 'high' : 'low';
             
             // 如果是高 DPI，需要調整繪製方式
             const dpr = window.devicePixelRatio || 1;
             if (dpr > 1) {
-              // 高 DPI 下的精確繪製
+              // 高 DPI 下的精確繪製：以 1:1 像素對齊避免插值
               this.ctx.drawImage(
                 img,
                 0,
@@ -739,6 +744,9 @@
             this.cancelCapture();
           } else if (event.key === "Enter" && this.selectedRegion) {
             this.confirmCapture();
+          } else if (event.key === "F6") {
+            // 切換影像平滑策略，便於 A/B 測試
+            this.toggleSmoothing();
           }
         }
 
@@ -869,9 +877,9 @@
             tempCanvas.width = srcW;
             tempCanvas.height = srcH;
 
-            // 高品質繪製設定（可依需要調整）
-            tempCtx.imageSmoothingEnabled = true;
-            tempCtx.imageSmoothingQuality = "high";
+            // 繪製設定（依 smoothingEnabled）
+            tempCtx.imageSmoothingEnabled = this.smoothingEnabled;
+            tempCtx.imageSmoothingQuality = this.smoothingEnabled ? "high" : "low";
 
             // 裁切選中區域（從高解析度 Canvas 擷取）
             tempCtx.drawImage(
@@ -923,9 +931,9 @@
             tempCanvas.width = srcW;
             tempCanvas.height = srcH;
 
-            // 高品質繪製設定（可依需要調整）
-            tempCtx.imageSmoothingEnabled = true;
-            tempCtx.imageSmoothingQuality = "high";
+            // 繪製設定（依 smoothingEnabled）
+            tempCtx.imageSmoothingEnabled = this.smoothingEnabled;
+            tempCtx.imageSmoothingQuality = this.smoothingEnabled ? "high" : "low";
 
             // 裁切選中區域
             tempCtx.drawImage(
@@ -965,6 +973,16 @@
 
         cancelCapture = () => {
           window.close();
+        }
+
+        // 切換影像平滑策略（F6）
+        toggleSmoothing() {
+          this.smoothingEnabled = !this.smoothingEnabled;
+          this.ctx.imageSmoothingEnabled = this.smoothingEnabled;
+          this.ctx.imageSmoothingQuality = this.smoothingEnabled ? 'high' : 'low';
+          console.log(`[Smoothing] 切換為 ${this.smoothingEnabled ? '開啟' : '關閉'}`);
+          // 重新繪製一次背景以反映設定（若已載入圖片）
+          // 可選：觸發重新抓取或提示使用者重新開始一次截圖流程
         }
       }
 
