@@ -291,13 +291,29 @@
           this.init();
         }
 
+        async loadSettingsForCapture() {
+          try {
+            const settings = await window.electronAPI.settings.get();
+            this.highDpiCapture = settings?.highDpiCapture !== false;
+            this.smoothingEnabled = !!settings?.smoothing;
+            console.log("[Capture Settings] highDpiCapture:", this.highDpiCapture, " smoothing:", this.smoothingEnabled);
+          } catch (e) {
+            console.warn("[Capture Settings] 載入失敗，使用預設值", e);
+            this.highDpiCapture = true;
+            this.smoothingEnabled = false;
+          }
+        }
+
         async init() {
           console.log('CaptureScreen: init() 開始');
+
+          // 讀取設定
+          await this.loadSettingsForCapture();
           
           // === 螢幕環境診斷 ===
           this.diagnoseDPI();
           
-          // 設定畫布大小為螢幕大小（DPI 感知）
+          // 設定畫布大小為螢幕大小（DPI 感知，可由設定控制）
           this.setupCanvasWithDPI();
 
           console.log('CaptureScreen: 畫布設定完成', this.canvas.width, 'x', this.canvas.height);
@@ -338,7 +354,7 @@
 
         // DPI 感知的 Canvas 設置
         setupCanvasWithDPI() {
-          const dpr = window.devicePixelRatio || 1;
+          const dpr = this.highDpiCapture ? (window.devicePixelRatio || 1) : 1;
           const screenWidth = window.screen.width;
           const screenHeight = window.screen.height;
           
@@ -405,7 +421,7 @@
             this.ctx.imageSmoothingQuality = this.smoothingEnabled ? 'high' : 'low';
             
             // 如果是高 DPI，需要調整繪製方式
-            const dpr = window.devicePixelRatio || 1;
+            const dpr = (this.highDpiCapture ? (window.devicePixelRatio || 1) : 1);
             if (dpr > 1) {
               // 高 DPI 下的精確繪製：以 1:1 像素對齊避免插值
               this.ctx.drawImage(

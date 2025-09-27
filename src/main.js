@@ -14,12 +14,13 @@ const os = require("os");
 // 依顯示器 scaleFactor 動態計算最適縮圖尺寸（DPR 感知）
 function getOptimalThumbnailSize() {
   try {
+    const useHiDpi = typeof store?.get === "function" ? store.get("highDpiCapture") !== false : true;
     const displays = electron.screen.getAllDisplays();
     let maxW = 0, maxH = 0;
     for (const d of displays) {
-      const scale = d.scaleFactor || 1;
-      const w = Math.round(d.size.width * scale);
-      const h = Math.round(d.size.height * scale);
+      const scale = (d.scaleFactor || 1);
+      const w = Math.round(d.size.width  * (useHiDpi ? scale : 1));
+      const h = Math.round(d.size.height * (useHiDpi ? scale : 1));
       if (w * h > maxW * maxH) {
         maxW = w;
         maxH = h;
@@ -137,6 +138,9 @@ class SettingsStore {
         saveDirectory: path.join(os.homedir(), "Desktop"),
         // 僅在開發模式且此設定為 true 時才會自動開啟 DevTools
         openDevTools: false,
+        // 影像/畫質相關設定
+        highDpiCapture: true,   // 啟用高 DPI 擷取（DPR 感知）
+        smoothing: false        // 預設關閉影像平滑，避免文字模糊
       };
       await this.save();
     }

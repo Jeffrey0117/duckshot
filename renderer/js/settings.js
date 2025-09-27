@@ -21,6 +21,9 @@ class SettingsManager {
         fullScreenCapture: "PrintScreen",
         activeWindowCapture: "Alt+PrintScreen",
       },
+      // 畫質相關
+      highDpiCapture: true, // 高 DPI 擷取
+      smoothing: false,     // 影像平滑
 
       // 儲存設定
       autoSaveToClipboard: true,
@@ -336,6 +339,20 @@ class SettingsManager {
                 <span>高品質</span>
               </div>
             </div>
+
+            <div class="form-group">
+              <label class="form-checkbox">
+                <input type="checkbox" id="setting-high-dpi-capture">
+                <span>高 DPI 擷取（提升清晰度，可能增加記憶體/CPU 使用）</span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label class="form-checkbox">
+                <input type="checkbox" id="setting-smoothing">
+                <span>影像平滑（可能使文字略為變軟）</span>
+              </label>
+            </div>
           </div>
 
           <!-- 儲存設定 -->
@@ -649,6 +666,8 @@ class SettingsManager {
       "setting-enable-hotkeys": this.get("enableHotkeys"),
       "setting-auto-update": this.get("autoUpdate"),
       "setting-telemetry": this.get("telemetry"),
+      "setting-high-dpi-capture": this.get("highDpiCapture"),
+      "setting-smoothing": this.get("smoothing"),
     };
 
     Object.entries(elements).forEach(([id, value]) => {
@@ -718,6 +737,8 @@ class SettingsManager {
           ?.checked,
         autoUpdate: document.getElementById("setting-auto-update")?.checked,
         telemetry: document.getElementById("setting-telemetry")?.checked,
+        highDpiCapture: document.getElementById("setting-high-dpi-capture")?.checked,
+        smoothing: document.getElementById("setting-smoothing")?.checked,
       };
 
       // 更新設定
