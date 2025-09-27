@@ -231,14 +231,31 @@ this.ctx.translate(0.5, 0.5); // 可能影響清晰度
 ## 實施記錄
 
 ### 待實施項目
-- [ ] 螢幕環境診斷
-- [ ] Canvas DPI 適配
-- [ ] 截圖源品質優化
-- [ ] 渲染設置調整
-- [ ] 測試驗證
+- [x] 螢幕環境診斷（DPR/色深/視窗尺寸）於 [renderer/capture.html](renderer/capture.html)
+- [x] Canvas DPI 適配（實際像素=CSS像素×DPR，1:1 繪製）於 [renderer/capture.html](renderer/capture.html)
+- [x] 截圖源品質優化（依顯示器 scaleFactor 動態計算 thumbnailSize）於 [src/main.js](src/main.js)
+- [x] 渲染設置調整（imageSmoothingEnabled 可切換、Quality 高/低；切換即時重繪避免插值殘留）於 [renderer/capture.html](renderer/capture.html)
+- [ ] 測試驗證（多螢幕縮放情境實測、A/B 對比樣本彙整）
 
 ### 實施結果記錄
-*此區域將在實施過程中更新*
+- DPI 診斷與高 DPI 擷取
+  - 新增 diagnoseDPI 與 DPI 感知 Canvas 設定，Canvas 物理尺寸隨 DPR 調整並以 ctx.scale 對齊，避免縮放插值
+  - 遮罩採雙 Canvas，選區內用 destination-out 完全挖空確保不變暗（[renderer/capture.html](renderer/capture.html)）
+- 來源解析度提升
+  - desktopCapturer thumbnailSize 依顯示器 scaleFactor 計算，顯著提高來源清晰度（[src/main.js](src/main.js)）
+- 區域裁切與剪貼簿輸出
+  - 裁切時以 DPR 計算 srcX/Y/Width/Height，輸出與來源像素 1:1（[renderer/capture.html](renderer/capture.html)）
+- 影像平滑策略 A/B
+  - 平滑預設關閉（文字更銳利），支援 F6/工具列按鈕切換；切換時即時重繪背景以避免舊插值殘留
+  - 右上角徽章「平滑：開/關」淡入顯示，1.5s 自動淡出（[renderer/capture.html](renderer/capture.html)）
+- UX 強化
+  - 工具列加入平滑切換按鈕，初始化與顯示時同步 active 與 title
+  - 說明文字補齊快捷鍵：Esc 取消、右鍵重抓/取消、F6 平滑、Enter 儲存、Ctrl+C 複製
+
+### 下一步驗證與輸出
+- 多螢幕與縮放比（100%/125%/150%/200%）實測記錄螢幕診斷與截圖樣本
+- 準備 A/B 對比集（平滑開/關、HiDPI 開/關），彙整到 README 或 docs
+- 回寫結論與最佳參數至本計畫（例如：HiDPI=開、Smoothing=關 為文字場景預設）
 
 ---
 
