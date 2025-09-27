@@ -18,8 +18,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     startFullscreenCapture: () =>
       ipcRenderer.invoke("start-fullscreen-capture"),
     startWindowCapture: () => ipcRenderer.invoke("start-window-capture"),
-    saveScreenshot: (imageData, format) =>
-      ipcRenderer.invoke("save-screenshot", imageData, format),
+    // 可選 label 參數供 A/B 命名使用
+    saveScreenshot: (imageData, format, label) =>
+      ipcRenderer.invoke("save-screenshot", imageData, format, label),
   },
 
   // 檔案系統 API
@@ -36,8 +37,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // 與舊版相容的頂層 API 代理
   getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
-  saveScreenshot: (imageData, format) =>
-    ipcRenderer.invoke("save-screenshot", imageData, format),
+  saveScreenshot: (imageData, format, label) =>
+    ipcRenderer.invoke("save-screenshot", imageData, format, label),
 
   // 事件監聽
   on: (channel, callback) => {

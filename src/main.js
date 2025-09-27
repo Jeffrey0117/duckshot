@@ -373,8 +373,8 @@ class DukshotApp {
       return this.startActiveWindowCapture();
     });
 
-    // 儲存截圖
-    ipcMain.handle("save-screenshot", async (event, imageData, format) => {
+    // 儲存截圖（支援可選 label 以利 A/B 命名）
+    ipcMain.handle("save-screenshot", async (event, imageData, format, label) => {
       try {
         console.log("Starting screenshot save process...");
 
@@ -387,9 +387,12 @@ class DukshotApp {
 
         console.log(`Save path: ${targetDir}`);
 
-        // 生成檔案名稱
+        // 生成檔案名稱（可選 label）
         const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-        const filename = `Dukshot-${timestamp}.${format}`;
+        let safeLabel = (typeof label === "string" && label.trim().length > 0) ? label.trim() : "";
+        // 基本清理：移除不安全字元
+        safeLabel = safeLabel.replace(/[^a-zA-Z0-9._-]+/g, "_");
+        const filename = safeLabel ? `Dukshot-${timestamp}-${safeLabel}.${format}` : `Dukshot-${timestamp}.${format}`;
         const filePath = pathMod.join(targetDir, filename);
 
         console.log(`Full file path: ${filePath}`);

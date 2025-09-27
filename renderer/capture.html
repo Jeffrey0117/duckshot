@@ -71,17 +71,21 @@
 
 
       .capture-btn {
-        width: 40px;
-        height: 40px;
+        width: 68px;
+        height: 64px;
         background: rgba(255, 255, 255, 0.15);
         color: white;
         border: none;
         border-radius: 6px;
         cursor: pointer;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: 4px;
         transition: all 0.2s ease;
+        padding: 6px 4px;
+        text-align: center;
       }
 
       .capture-btn:hover {
@@ -92,6 +96,14 @@
 
       .capture-btn svg {
         transition: transform 0.2s ease;
+        display: block;
+      }
+      .capture-btn .btn-text {
+        font-size: 11px;
+        line-height: 1;
+        color: rgba(255,255,255,0.95);
+        user-select: none;
+        pointer-events: none;
       }
 
       .capture-btn:hover svg {
@@ -258,29 +270,28 @@
 
     <div class="capture-toolbar" id="captureToolbar">
       <button class="capture-btn" id="copyBtn" title="複製截圖 (Ctrl+C)">
-        <svg viewBox="0 0 24 24" width="24" height="24">
+        <svg viewBox="0 0 24 24" width="22" height="22">
           <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z" fill="currentColor"/>
         </svg>
+        <div class="btn-text">複製到剪貼簿</div>
       </button>
       <button class="capture-btn" id="saveBtn" title="儲存截圖 (Enter)">
-        <svg viewBox="0 0 24 24" width="24" height="24">
+        <svg viewBox="0 0 24 24" width="22" height="22">
           <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" fill="currentColor"/>
         </svg>
+        <div class="btn-text">儲存</div>
       </button>
       <button class="capture-btn" id="uploadBtn" title="上傳截圖">
         <svg viewBox="0 0 24 24" width="24" height="24">
           <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" fill="currentColor"/>
         </svg>
-      </button>
-      <button class="capture-btn" id="toggleSmoothingBtn" title="平滑切換 (F6)">
-        <svg viewBox="0 0 24 24" width="24" height="24">
-          <path d="M3 7h8v2H3V7zm0 8h14v2H3v-2zm10-4h8v2h-8v-2z" fill="currentColor"/>
-        </svg>
+        <div class="btn-text">上傳</div>
       </button>
       <button class="capture-btn" id="cancelBtn" title="取消 (Esc)">
-        <svg viewBox="0 0 24 24" width="24" height="24">
+        <svg viewBox="0 0 24 24" width="22" height="22">
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
         </svg>
+        <div class="btn-text">取消</div>
       </button>
      <!-- 座標顯示區域 -->
     <div class="coordinate-display" id="coordinateDisplay"></div>
@@ -767,13 +778,11 @@
             const copyBtn = document.getElementById("copyBtn");
             const saveBtn = document.getElementById("saveBtn");
             const uploadBtn = document.getElementById("uploadBtn");
-            const toggleSmoothingBtn = document.getElementById("toggleSmoothingBtn");
             const cancelBtn = document.getElementById("cancelBtn");
  
             if (copyBtn) copyBtn.addEventListener("click", this.copyToClipboard);
             if (saveBtn) saveBtn.addEventListener("click", () => this.confirmCapture("png"));
             if (uploadBtn) uploadBtn.addEventListener("click", this.uploadToDukTw);
-            if (toggleSmoothingBtn) toggleSmoothingBtn.addEventListener("click", () => { this.toggleSmoothing(); this.updateSmoothingBadge(); });
             if (cancelBtn) cancelBtn.addEventListener("click", this.cancelCapture);
 
             console.log('CaptureScreen: 事件監聽器設定完成');
@@ -911,12 +920,6 @@
           toolbar.style.left = left + "px";
           toolbar.style.top = top + "px";
           toolbar.style.display = "flex";
-          // 同步工具列平滑按鈕的狀態
-          const btn = document.getElementById("toggleSmoothingBtn");
-          if (btn) {
-            btn.classList.toggle("active", this.smoothingEnabled);
-            btn.title = `平滑切換 (目前：${this.smoothingEnabled ? '開' : '關'})`;
-          }
         }
 
         clearSelection() {
@@ -931,47 +934,41 @@
           this.showInitialMask();
         }
 
+        // 產生當前選區的 DataURL（不直接儲存）
+        generateSelectionDataURL(format = "png", smoothing = this.smoothingEnabled) {
+          if (!this.selectedRegion) return null;
+          const dpr = window.devicePixelRatio || 1;
+          const tempCanvas = document.createElement("canvas");
+          const tempCtx = tempCanvas.getContext("2d");
+
+          const srcX = Math.round(this.selectedRegion.x * dpr);
+          const srcY = Math.round(this.selectedRegion.y * dpr);
+          const srcW = Math.round(this.selectedRegion.width * dpr);
+          const srcH = Math.round(this.selectedRegion.height * dpr);
+
+          tempCanvas.width = srcW;
+          tempCanvas.height = srcH;
+
+          tempCtx.imageSmoothingEnabled = !!smoothing;
+          tempCtx.imageSmoothingQuality = smoothing ? "high" : "low";
+
+          tempCtx.drawImage(this.canvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+
+          const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+          return tempCanvas.toDataURL(mimeType);
+        }
+
         async confirmCapture(format = "png") {
           if (!this.selectedRegion) return;
 
           try {
-            const dpr = window.devicePixelRatio || 1;
+            const imageData = this.generateSelectionDataURL(format, this.smoothingEnabled);
+            if (!imageData) return;
 
-            // 創建臨時畫布來裁切選中區域（DPR 感知）
-            const tempCanvas = document.createElement("canvas");
-            const tempCtx = tempCanvas.getContext("2d");
-
-            const srcX = Math.round(this.selectedRegion.x * dpr);
-            const srcY = Math.round(this.selectedRegion.y * dpr);
-            const srcW = Math.round(this.selectedRegion.width * dpr);
-            const srcH = Math.round(this.selectedRegion.height * dpr);
-
-            tempCanvas.width = srcW;
-            tempCanvas.height = srcH;
-
-            // 繪製設定（依 smoothingEnabled）
-            tempCtx.imageSmoothingEnabled = this.smoothingEnabled;
-            tempCtx.imageSmoothingQuality = this.smoothingEnabled ? "high" : "low";
-
-            // 裁切選中區域（從高解析度 Canvas 擷取）
-            tempCtx.drawImage(
-              this.canvas,
-              srcX,
-              srcY,
-              srcW,
-              srcH,
-              0,
-              0,
-              srcW,
-              srcH
-            );
-
-            // 將圖片數據發送到主進程
-            const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
-            const imageData = tempCanvas.toDataURL(mimeType);
             const result = await window.electronAPI.saveScreenshot(
               imageData,
-              format
+              format,
+              undefined
             );
 
             if (result.success) {
@@ -982,6 +979,44 @@
           } catch (error) {
             console.error("Error confirming capture:", error);
             alert("截圖處理失敗: " + error.message);
+          }
+        }
+
+        // 匯出 A/B：以目前選區輸出 平滑:關 與 平滑:開 各一張，檔名附標籤
+        async exportAB(format = "png") {
+          if (!this.selectedRegion) {
+            alert("請先框選截圖區域");
+            return;
+          }
+          try {
+            const dpr = window.devicePixelRatio || 1;
+            const hidpi = this.highDpiCapture ? "hidpi-on" : "hidpi-off";
+
+            // A) 平滑：關
+            const dataOff = this.generateSelectionDataURL(format, false);
+            if (dataOff) {
+              await window.electronAPI.saveScreenshot(
+                dataOff,
+                format,
+                `smooth-off_${hidpi}_dpr-${dpr}`
+              );
+            }
+
+            // B) 平滑：開
+            const dataOn = this.generateSelectionDataURL(format, true);
+            if (dataOn) {
+              await window.electronAPI.saveScreenshot(
+                dataOn,
+                format,
+                `smooth-on_${hidpi}_dpr-${dpr}`
+              );
+            }
+
+            // 完成後關閉視窗
+            window.close();
+          } catch (e) {
+            console.error("Export A/B failed:", e);
+            alert("匯出 A/B 失敗: " + e.message);
           }
         }
 
