@@ -260,3 +260,65 @@ this.ctx.translate(0.5, 0.5); // 可能影響清晰度
 ---
 
 **注意：** 畫質優化是一個系統性工程，需要從多個角度同時改善，逐步測試並驗證效果。
+## 新規劃與優先事項（更新 2025-09-27）
+
+- 已完成新增
+  - 預覽固定關閉平滑：確保文字最銳利（見 [loadScreenImage](renderer/capture.html:469)、[toggleSmoothing](renderer/capture.html:1091)）
+  - 選區整數對齊（部分）：MouseUp/拖曳整數化（[onMouseUp](renderer/capture.html:684)、[updateDragPosition](renderer/capture.html:578)），導出座標四捨五入（[generateSelectionDataURL](renderer/capture.html:943)）
+
+- 近期可持續畫質優化項（可逐步實作）
+  1) 選區動態顯示整數對齊
+     - 在動態框選過程（[updateSelection](renderer/capture.html:847)）立即整數化 x/y/width/height，避免半像素鋸齒。
+  2) 多螢幕來源精準匹配
+     - 依滑鼠所在顯示器選對 source 與 scaleFactor，避免預設 sources[0]（主程式 [src/main.js](src/main.js) 調整）。
+  3) PNG 中繼資料（pHYs、sRGB/gAMA/cHRM）
+     - 寫入像素密度和色彩校正，避免外部檢視器誤縮放/偏色（主程式 save 邏輯）。
+  4) JPEG 導出與品質
+     - 文字預設 PNG；照片情境提供 JPEG 品質（0.85/0.92），並對應平滑策略（[confirmCapture](renderer/capture.html:966) 與主程式對應）。
+  5) 2x/等比縮放導出
+     - 小區塊可 2x 圖，先 1:1 取樣再等比放大，確保清晰。
+  6) 分數 DPR 1.25/1.5/1.75
+     - 全鏈路四捨五入策略與日誌驗證（座標×DPR 後再 Math.round）。
+
+---
+
+## 新任務：選區邊線可調整（先實作）
+
+使用者目標：選取完成後，支援用滑鼠拖曳四邊與四角，動態調整矩形大小。左右邊只改 x/width，上下邊只改 y/height；整數對齊，並即時更新遮罩、格線與尺寸標示。
+
+設計要點
+- 互動區域（Hit Test）
+  - 邊線熱區寬度 6~8px；角落熱區 10~12px。
+  - 游標樣式：左右邊（ew-resize）、上下邊（ns-resize）、四角（nwse-nesw / 對應角）。
+- 狀態機
+  - idle → selecting（框選中）→ selected（框選完成）→ resizing（邊/角拖曳中）
+  - 狀態變數：isResizing、resizeEdge（'left'|'right'|'top'|'bottom'|'top-left'|'top-right'|'bottom-left'|'bottom-right'）
+- 幾何更新
+  - 拖曳中以 Math.round 對齊，確保 width/height ≥ 1。
+  - 變更 x/width 或 y/height 後，立即呼叫 [updateSelectionVisuals](renderer/capture.html:618) 與 [updateVisualEffects](renderer/capture.html:871)。
+- 工具列位置
+  - 重算並避免出界（沿用既有 [showToolbar](renderer/capture.html:911) 邏輯）。
+
+實作規格（預計變更點）
+- 檔案：renderer/capture.html
+  - 新增成員：isResizing、resizeEdge、resizeStart（滑鼠起點）、regionStart（初始矩形）
+  - 新增方法：
+    - hitTestEdge(x,y) → 回傳邊/角或 null
+    - beginResize(edge, event)
+    - updateResize(event) → 計算新矩形（整數對齊、邊界約束）
+    - endResize()
+  - 事件插入：
+    - onMouseDown：在 selected 狀態下優先 hitTestEdge → beginResize；否則沿用拖曳/重新框選
+    - onMouseMove：若 isResizing → updateResize；否則更新游標樣式
+    - onMouseUp：若 isResizing → endResize
+- 互動細節
+  - 邊界檢查避免負 width/height；當拖過另一側時自動翻面（left/right 或 top/bottom 交換）
+  - 更新游標樣式：document.body.style.cursor = 'ew-resize'|'ns-resize'|'nwse-resize'|'nesw-resize'
+- 影響區域
+  - 不變更導出流程；完成後仍以 [generateSelectionDataURL](renderer/capture.html:943) 產出
+
+驗收標準
+- 已選取矩形後，游標靠近邊/角會變更樣式
+- 拖曳邊/角可即時改變矩形，尺寸標示與格線同步更新
+- 工具列位置跟隨新矩形並不出界
+- 全程整數對齊，無半像素模糊

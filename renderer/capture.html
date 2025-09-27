@@ -320,6 +320,13 @@
           this.selectedRegion = null;
           this.hasRecaptured = false; // 追蹤是否已經重新抓取過
 
+          // 邊線調整（resize）狀態
+          this.isResizing = false;
+          this.resizeEdge = null; // 'left' | 'right' | 'top' | 'bottom'
+          this.resizeStart = { x: 0, y: 0 };
+          this.regionStart = null;
+          this.hitEdgeWidth = 8;   // 邊線熱區寬度
+
           // 影像平滑策略（可切換）：預設關閉以避免文字插值模糊
           this.smoothingEnabled = false;
 
@@ -467,8 +474,8 @@
             
             // 使用繪製方式（依 smoothingEnabled）
             this.ctx.save();
-            this.ctx.imageSmoothingEnabled = this.smoothingEnabled;
-            this.ctx.imageSmoothingQuality = this.smoothingEnabled ? 'high' : 'low';
+            this.ctx.imageSmoothingEnabled = false;
+            this.ctx.imageSmoothingQuality = 'low';
             
             // 如果是高 DPI，需要調整繪製方式
             const dpr = (this.highDpiCapture ? (window.devicePixelRatio || 1) : 1);
@@ -587,9 +594,11 @@
          const constrainedX = Math.max(0, Math.min(newX, maxX));
          const constrainedY = Math.max(0, Math.min(newY, maxY));
 
-         // 更新選區位置
-         this.selectedRegion.x = constrainedX;
-         this.selectedRegion.y = constrainedY;
+         // 更新選區位置（整數對齊）
+         const rX = Math.round(constrainedX);
+         const rY = Math.round(constrainedY);
+         this.selectedRegion.x = rX;
+         this.selectedRegion.y = rY;
 
          // 更新選區視覺元素
          this.updateSelectionVisuals();
@@ -623,11 +632,16 @@
           const rect = document.getElementById("selectionRect");
           rect.style.left = x + "px";
           rect.style.top = y + "px";
+          rect.style.width = width + "px";
+          rect.style.height = height + "px";
+          rect.style.display = "block";
 
           // 更新選區資訊
           const info = document.getElementById("selectionInfo");
+          info.textContent = `${width} × ${height}`;
           info.style.left = x + width + 10 + "px";
           info.style.top = y + "px";
+          info.style.display = "block";
 
           // 更新視覺效果
           this.updateVisualEffects(x, y, width, height);
@@ -641,10 +655,30 @@
             // 更新座標顯示（無論是否在選取）
             this.updateCoordinateDisplay(event);
 
+            // 進行邊線調整
+            if (this.isResizing) {
+              this.updateResize(event);
+              return;
+            }
+
             // 如果正在拖曳，更新拖曳位置
             if (this.isDragging) {
               this.updateDragPosition(event);
               return;
+            }
+
+            // 已有選區時，更新游標（邊線熱區提示）
+            if (this.selectedRegion && !this.isSelecting) {
+              const edge = this.hitTestEdge(event.clientX, event.clientY);
+              if (edge === 'left' || edge === 'right') {
+                document.body.style.cursor = 'ew-resize';
+              } else if (edge === 'top' || edge === 'bottom') {
+                document.body.style.cursor = 'ns-resize';
+              } else if (this.isInSelection(event.clientX, event.clientY)) {
+                document.body.style.cursor = 'move';
+              } else {
+                document.body.style.cursor = 'crosshair';
+              }
             }
 
             if (!this.isSelecting) return;
@@ -681,6 +715,12 @@
 
         onMouseUp = (event) => {
           try {
+            // 若正在邊線調整，結束調整
+            if (this.isResizing) {
+              this.endResize();
+              return;
+            }
+
             // 如果正在拖曳，結束拖曳
             if (this.isDragging) {
               this.endDragging();
@@ -695,12 +735,15 @@
             const height = Math.abs(this.currentY - this.startY);
 
             if (width > 10 && height > 10) {
-              this.selectedRegion = {
-                x: Math.min(this.startX, this.currentX),
-                y: Math.min(this.startY, this.currentY),
-                width: width,
-                height: height,
+              const rx = Math.min(this.startX, this.currentX);
+              const ry = Math.min(this.startY, this.currentY);
+              const rounded = {
+                x: Math.round(rx),
+                y: Math.round(ry),
+                width: Math.max(1, Math.round(width)),
+                height: Math.max(1, Math.round(height)),
               };
+              this.selectedRegion = rounded;
 
               this.showToolbar();
             } else {
@@ -718,12 +761,21 @@
           try {
             console.log('CaptureScreen: onMouseDown', event.clientX, event.clientY);
 
-            // 檢查是否點擊在選區內且選區已確定
-            if (this.selectedRegion && this.isInSelection(event.clientX, event.clientY)) {
-              this.startDragging(event);
-              return;
+            // 若已有選區，先檢查是否點擊邊線熱區進入調整
+            if (this.selectedRegion) {
+              const edge = this.hitTestEdge(event.clientX, event.clientY);
+              if (edge) {
+                this.beginResize(edge, event);
+                return;
+              }
+              // 其後再檢查是否在選區內，則進入拖曳
+              if (this.isInSelection(event.clientX, event.clientY)) {
+                this.startDragging(event);
+                return;
+              }
             }
 
+            // 新選取
             this.isSelecting = true;
             this.startX = event.clientX;
             this.startY = event.clientY;
@@ -1103,8 +1155,9 @@
               const img = new Image();
               img.onload = () => {
                 this.ctx.save();
-                this.ctx.imageSmoothingEnabled = this.smoothingEnabled;
-                this.ctx.imageSmoothingQuality = this.smoothingEnabled ? 'high' : 'low';
+                // 預覽背景一律關閉平滑，確保文字銳利
+                this.ctx.imageSmoothingEnabled = false;
+                this.ctx.imageSmoothingQuality = 'low';
 
                 const dpr = (this.highDpiCapture ? (window.devicePixelRatio || 1) : 1);
                 if (dpr > 1) {
