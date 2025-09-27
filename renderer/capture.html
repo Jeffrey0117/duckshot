@@ -213,7 +213,7 @@
         display: none;
       }
 
-      /* 平滑狀態徽章 */
+      /* 平滑狀態徽章（自動淡入淡出） */
       .smoothing-badge {
         position: fixed;
         top: 20px;
@@ -225,11 +225,15 @@
         font-size: 12px;
         font-family: "Consolas", monospace;
         z-index: 1006;
-        display: none;
         border: 1px solid rgba(255,255,255,0.15);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+        pointer-events: none;
       }
       .smoothing-badge.active {
-        display: block;
+        opacity: 1;
+        visibility: visible;
       }
     </style>
   </head>
@@ -266,6 +270,11 @@
       <button class="capture-btn" id="uploadBtn" title="上傳截圖">
         <svg viewBox="0 0 24 24" width="24" height="24">
           <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" fill="currentColor"/>
+        </svg>
+      </button>
+      <button class="capture-btn" id="toggleSmoothingBtn" title="平滑切換 (F6)">
+        <svg viewBox="0 0 24 24" width="24" height="24">
+          <path d="M3 7h8v2H3V7zm0 8h14v2H3v-2zm10-4h8v2h-8v-2z" fill="currentColor"/>
         </svg>
       </button>
       <button class="capture-btn" id="cancelBtn" title="取消 (Esc)">
@@ -750,11 +759,13 @@
             const copyBtn = document.getElementById("copyBtn");
             const saveBtn = document.getElementById("saveBtn");
             const uploadBtn = document.getElementById("uploadBtn");
+            const toggleSmoothingBtn = document.getElementById("toggleSmoothingBtn");
             const cancelBtn = document.getElementById("cancelBtn");
-
+ 
             if (copyBtn) copyBtn.addEventListener("click", this.copyToClipboard);
             if (saveBtn) saveBtn.addEventListener("click", () => this.confirmCapture("png"));
             if (uploadBtn) uploadBtn.addEventListener("click", this.uploadToDukTw);
+            if (toggleSmoothingBtn) toggleSmoothingBtn.addEventListener("click", () => { this.toggleSmoothing(); this.updateSmoothingBadge(); });
             if (cancelBtn) cancelBtn.addEventListener("click", this.cancelCapture);
 
             console.log('CaptureScreen: 事件監聽器設定完成');
@@ -1026,11 +1037,17 @@
           // 可選：觸發重新抓取或提示使用者重新開始一次截圖流程
         }
 
-        // 更新平滑徽章顯示
+        // 更新平滑徽章顯示（自動淡出）
         updateSmoothingBadge() {
           if (!this.smoothingBadge) return;
           this.smoothingBadge.textContent = `平滑：${this.smoothingEnabled ? '開' : '關'}`;
           this.smoothingBadge.classList.add('active');
+          if (this._smoothingBadgeTimer) {
+            clearTimeout(this._smoothingBadgeTimer);
+          }
+          this._smoothingBadgeTimer = setTimeout(() => {
+            this.smoothingBadge.classList.remove('active');
+          }, 1500);
         }
       }
 
