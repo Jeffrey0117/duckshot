@@ -322,10 +322,11 @@
 
           // 邊線調整（resize）狀態
           this.isResizing = false;
-          this.resizeEdge = null; // 'left' | 'right' | 'top' | 'bottom'
+          this.resizeEdge = null; // 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
           this.resizeStart = { x: 0, y: 0 };
           this.regionStart = null;
           this.hitEdgeWidth = 8;   // 邊線熱區寬度
+          this.hitCornerSize = 12; // 角落熱區大小
 
           // 影像平滑策略（可切換）：預設關閉以避免文字插值模糊
           this.smoothingEnabled = false;
@@ -650,6 +651,192 @@
           this.drawSizeIndicator(x, y, width, height);
         }
 
+        // 偵測邊線或角落（Hit Test）
+        hitTestEdge(x, y) {
+          if (!this.selectedRegion) return null;
+          
+          const { x: rx, y: ry, width, height } = this.selectedRegion;
+          const edgeW = this.hitEdgeWidth;
+          const cornerS = this.hitCornerSize;
+          
+          // 檢測八個控制點（優先檢測角落）
+          // 左上角
+          if (x >= rx - cornerS && x <= rx + cornerS && y >= ry - cornerS && y <= ry + cornerS) {
+            return 'top-left';
+          }
+          // 右上角
+          if (x >= rx + width - cornerS && x <= rx + width + cornerS && y >= ry - cornerS && y <= ry + cornerS) {
+            return 'top-right';
+          }
+          // 左下角
+          if (x >= rx - cornerS && x <= rx + cornerS && y >= ry + height - cornerS && y <= ry + height + cornerS) {
+            return 'bottom-left';
+          }
+          // 右下角
+          if (x >= rx + width - cornerS && x <= rx + width + cornerS && y >= ry + height - cornerS && y <= ry + height + cornerS) {
+            return 'bottom-right';
+          }
+          
+          // 檢測四條邊線
+          // 上邊
+          if (x >= rx && x <= rx + width && y >= ry - edgeW && y <= ry + edgeW) {
+            return 'top';
+          }
+          // 下邊
+          if (x >= rx && x <= rx + width && y >= ry + height - edgeW && y <= ry + height + edgeW) {
+            return 'bottom';
+          }
+          // 左邊
+          if (x >= rx - edgeW && x <= rx + edgeW && y >= ry && y <= ry + height) {
+            return 'left';
+          }
+          // 右邊
+          if (x >= rx + width - edgeW && x <= rx + width + edgeW && y >= ry && y <= ry + height) {
+            return 'right';
+          }
+          
+          return null;
+        }
+
+        // 開始調整大小
+        beginResize(edge, event) {
+          this.isResizing = true;
+          this.resizeEdge = edge;
+          this.resizeStart = { x: event.clientX, y: event.clientY };
+          // 保存原始矩形以便計算
+          this.regionStart = { ...this.selectedRegion };
+          
+          // 隱藏工具列
+          document.getElementById("captureToolbar").style.display = "none";
+          
+          // 設置對應的游標
+          this.updateResizeCursor(edge);
+        }
+        
+        // 更新調整大小游標
+        updateResizeCursor(edge) {
+          const cursorMap = {
+            'left': 'ew-resize',
+            'right': 'ew-resize',
+            'top': 'ns-resize',
+            'bottom': 'ns-resize',
+            'top-left': 'nwse-resize',
+            'top-right': 'nesw-resize',
+            'bottom-left': 'nesw-resize',
+            'bottom-right': 'nwse-resize'
+          };
+          document.body.style.cursor = cursorMap[edge] || 'crosshair';
+        }
+        
+        // 更新調整大小
+        updateResize(event) {
+          if (!this.isResizing || !this.regionStart) return;
+          
+          const dx = event.clientX - this.resizeStart.x;
+          const dy = event.clientY - this.resizeStart.y;
+          const original = this.regionStart;
+          
+          let newX = original.x;
+          let newY = original.y;
+          let newWidth = original.width;
+          let newHeight = original.height;
+          
+          // 根據不同的邊線/角落進行調整
+          switch (this.resizeEdge) {
+            case 'left':
+              newX = Math.min(original.x + dx, original.x + original.width - 1);
+              newWidth = Math.max(1, original.x + original.width - newX);
+              break;
+            case 'right':
+              newWidth = Math.max(1, original.width + dx);
+              break;
+            case 'top':
+              newY = Math.min(original.y + dy, original.y + original.height - 1);
+              newHeight = Math.max(1, original.y + original.height - newY);
+              break;
+            case 'bottom':
+              newHeight = Math.max(1, original.height + dy);
+              break;
+            case 'top-left':
+              newX = Math.min(original.x + dx, original.x + original.width - 1);
+              newY = Math.min(original.y + dy, original.y + original.height - 1);
+              newWidth = Math.max(1, original.x + original.width - newX);
+              newHeight = Math.max(1, original.y + original.height - newY);
+              break;
+            case 'top-right':
+              newY = Math.min(original.y + dy, original.y + original.height - 1);
+              newWidth = Math.max(1, original.width + dx);
+              newHeight = Math.max(1, original.y + original.height - newY);
+              break;
+            case 'bottom-left':
+              newX = Math.min(original.x + dx, original.x + original.width - 1);
+              newWidth = Math.max(1, original.x + original.width - newX);
+              newHeight = Math.max(1, original.height + dy);
+              break;
+            case 'bottom-right':
+              newWidth = Math.max(1, original.width + dx);
+              newHeight = Math.max(1, original.height + dy);
+              break;
+          }
+          
+          // 邊界檢查
+          newX = Math.max(0, newX);
+          newY = Math.max(0, newY);
+          if (newX + newWidth > window.innerWidth) {
+            newWidth = window.innerWidth - newX;
+          }
+          if (newY + newHeight > window.innerHeight) {
+            newHeight = window.innerHeight - newY;
+          }
+          
+          // 整數對齊
+          this.selectedRegion = {
+            x: Math.round(newX),
+            y: Math.round(newY),
+            width: Math.round(newWidth),
+            height: Math.round(newHeight)
+          };
+          
+          // 更新視覺效果
+          this.updateSelectionVisuals();
+        }
+        
+        // 結束調整大小
+        endResize() {
+          this.isResizing = false;
+          this.resizeEdge = null;
+          this.resizeStart = null;
+          this.regionStart = null;
+          
+          // 恢復游標
+          document.body.style.cursor = 'crosshair';
+          
+          // 顯示工具列
+          this.showToolbar();
+        }
+
+        // 繪製尺寸標示
+        drawSizeIndicator(x, y, width, height) {
+          if (!this.sizeIndicator) return;
+          
+          // 顯示尺寸標示
+          this.sizeIndicator.style.display = 'block';
+          this.sizeIndicator.textContent = `${width} × ${height}`;
+          
+          // 計算位置（在選區上方或下方）
+          let indicatorY = y - 40;
+          if (indicatorY < 10) {
+            indicatorY = y + height + 10;
+          }
+          
+          // 置中於選區
+          const indicatorX = x + (width / 2);
+          
+          this.sizeIndicator.style.left = `${indicatorX}px`;
+          this.sizeIndicator.style.top = `${indicatorY}px`;
+          this.sizeIndicator.style.transform = 'translateX(-50%)';
+        }
+
         onMouseMove = (event) => {
           try {
             // 更新座標顯示（無論是否在選取）
@@ -670,10 +857,8 @@
             // 已有選區時，更新游標（邊線熱區提示）
             if (this.selectedRegion && !this.isSelecting) {
               const edge = this.hitTestEdge(event.clientX, event.clientY);
-              if (edge === 'left' || edge === 'right') {
-                document.body.style.cursor = 'ew-resize';
-              } else if (edge === 'top' || edge === 'bottom') {
-                document.body.style.cursor = 'ns-resize';
+              if (edge) {
+                this.updateResizeCursor(edge);
               } else if (this.isInSelection(event.clientX, event.clientY)) {
                 document.body.style.cursor = 'move';
               } else {
