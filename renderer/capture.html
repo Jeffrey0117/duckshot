@@ -212,6 +212,25 @@
         pointer-events: none;
         display: none;
       }
+
+      /* 平滑狀態徽章 */
+      .smoothing-badge {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.6);
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: "Consolas", monospace;
+        z-index: 1006;
+        display: none;
+        border: 1px solid rgba(255,255,255,0.15);
+      }
+      .smoothing-badge.active {
+        display: block;
+      }
     </style>
   </head>
   <body>
@@ -258,6 +277,8 @@
     <div class="coordinate-display" id="coordinateDisplay"></div>
     </div>
 
+    <!-- 平滑狀態徽章 -->
+    <div class="smoothing-badge" id="smoothingBadge">平滑：關</div>
     <script>
       class CaptureScreen {
         constructor() {
@@ -287,6 +308,8 @@
           this.gridOverlay = document.getElementById("gridOverlay");
           // 座標顯示元素
           this.coordinateDisplay = document.getElementById("coordinateDisplay");
+          // 平滑徽章元素
+          this.smoothingBadge = document.getElementById("smoothingBadge");
 
           this.init();
         }
@@ -302,6 +325,7 @@
             this.highDpiCapture = true;
             this.smoothingEnabled = false;
           }
+          this.updateSmoothingBadge();
         }
 
         async init() {
@@ -763,6 +787,7 @@
           } else if (event.key === "F6") {
             // 切換影像平滑策略，便於 A/B 測試
             this.toggleSmoothing();
+            this.updateSmoothingBadge();
           }
         }
 
@@ -999,6 +1024,13 @@
           console.log(`[Smoothing] 切換為 ${this.smoothingEnabled ? '開啟' : '關閉'}`);
           // 重新繪製一次背景以反映設定（若已載入圖片）
           // 可選：觸發重新抓取或提示使用者重新開始一次截圖流程
+        }
+
+        // 更新平滑徽章顯示
+        updateSmoothingBadge() {
+          if (!this.smoothingBadge) return;
+          this.smoothingBadge.textContent = `平滑：${this.smoothingEnabled ? '開' : '關'}`;
+          this.smoothingBadge.classList.add('active');
         }
       }
 
