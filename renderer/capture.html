@@ -334,6 +334,12 @@
             this.highDpiCapture = true;
             this.smoothingEnabled = false;
           }
+          // 初始化按鈕與徽章狀態
+          const btn = document.getElementById("toggleSmoothingBtn");
+          if (btn) {
+            btn.classList.toggle("active", this.smoothingEnabled);
+            btn.title = `平滑切換 (目前：${this.smoothingEnabled ? '開' : '關'})`;
+          }
           this.updateSmoothingBadge();
         }
 
@@ -899,6 +905,12 @@
           toolbar.style.left = left + "px";
           toolbar.style.top = top + "px";
           toolbar.style.display = "flex";
+          // 同步工具列平滑按鈕的狀態
+          const btn = document.getElementById("toggleSmoothingBtn");
+          if (btn) {
+            btn.classList.toggle("active", this.smoothingEnabled);
+            btn.title = `平滑切換 (目前：${this.smoothingEnabled ? '開' : '關'})`;
+          }
         }
 
         clearSelection() {
