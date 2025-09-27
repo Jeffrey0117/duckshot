@@ -487,7 +487,7 @@ class DukshotApp {
       return { success: true };
     });
 
-    // 列出預設截圖資料夾中的圖片（用於前端顯示）- 優化版本
+    // 列出預設截圖資料夾中的圖片（用於前端顯示）- 分批載入版本
     ipcMain.handle("list-screenshots", async () => {
       try {
         const dir = await this.getValidSaveDir();
@@ -523,14 +523,18 @@ class DukshotApp {
         // 只取常見圖片副檔名
         const exts = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
         
-        // 改為載入所有檔案
+        // 過濾出圖片檔案
         const filteredEntries = entries.filter(entry => {
           if (!entry.isFile()) return false;
           const ext = pathMod.extname(entry.name).toLowerCase();
           return exts.has(ext);
         });
 
-        // 極速處理所有檔案 - 初始載入跳過 stat，在背景補充
+        // 處理所有檔案，不再限制批次大小
+        const totalCount = filteredEntries.length;
+        console.log(`[list-screenshots] Total ${totalCount} files, loading all at once`);
+        
+        // 處理所有檔案（一次性載入）
         const allFiles = filteredEntries.map((entry) => {
           const full = pathMod.join(dir, entry.name);
           const ext = pathMod.extname(entry.name).replace(".", "");
@@ -550,9 +554,7 @@ class DukshotApp {
           };
         });
 
-        console.log(`[list-screenshots] Returning ${allFiles.length} files`);
-        
-        // 背景載入所有檔案的 stat 資訊（不阻塞返回）
+        // 背景載入所有檔案的 stat 資訊（稍後執行以免阻塞）
         if (allFiles.length > 0) {
           setTimeout(async () => {
             for (const file of allFiles) {
@@ -569,14 +571,15 @@ class DukshotApp {
                 }
               }
             }
-          }, 100);
+          }, 500);
         }
+        
         return {
           success: true,
           files: allFiles,
           directory: dir,
           hasMore: false,
-          totalCount: allFiles.length
+          totalCount: totalCount
         };
       } catch (error) {
         console.error("[list-screenshots] 錯誤:", error);

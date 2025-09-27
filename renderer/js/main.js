@@ -94,7 +94,12 @@ class DukshotApp {
         if (Array.isArray(files) && files.length > 0 && !this.skipNextRefresh) {
           // 防抖：避免短時間內重複顯示（增加到5秒避免重複）
           if (!this.lastFilesLoadTime || Date.now() - this.lastFilesLoadTime > 5000) {
-            this.ui.showNotification(`已載入 ${files.length} 張圖片`, "success", 1500);
+            // 檢查是否還在載入中
+            const isStillLoading = window.electronAPI?.on && this.fileManager.thumbnailQueue?.length > 0;
+            const message = isStillLoading
+              ? `正在載入 ${files.length} 張圖片...`
+              : `已載入 ${files.length} 張圖片`;
+            this.ui.showNotification(message, "success", 1500);
             this.lastFilesLoadTime = Date.now();
           }
         }
@@ -460,88 +465,12 @@ class DukshotApp {
     // 初始化空狀態
     this.ui.showEmptyState();
 
-    // 只載入一次檔案，避免重複呼叫
+    // 載入檔案（讓 FileManager 處理所有邏輯）
     try {
-      // 先取得正確的目錄名稱
-      if (window.electronAPI?.files?.listScreenshots) {
-        const res = await window.electronAPI.files.listScreenshots();
-        if (res?.success) {
-          const dir = res.directory || "";
-          const base = (dir.split(/[\\/]/).pop() || "").trim();
-          const label = base.toLowerCase() === "desktop" ? "桌面" : (base || "今日");
-          
-          // 更新當前資料夾名稱
-          if (label !== this.currentFolder) {
-            this.currentFolder = label;
-            
-            // 更新分頁標籤
-            const activeTab = document.querySelector(".tab.active") ||
-                            document.querySelector(`.tab[data-folder="今日"]`);
-            if (activeTab) {
-              activeTab.dataset.folder = label;
-              const span = activeTab.querySelector("span");
-              if (span) span.textContent = label;
-            }
-          }
-          
-          // 記錄實際目錄路徑
-          if (res.directory) {
-            this.fileManager.lastDirectory = res.directory;
-          }
-          
-          // 處理檔案（如果有的話）
-          if (res.files && res.files.length > 0) {
-            const files = res.files.map(f => {
-              const fsPath = typeof f.path === "string" ? f.path : "";
-              // 修正：正確處理中文路徑編碼
-              let fileUrl = "";
-              if (fsPath) {
-                const normalized = fsPath.replace(/\\/g, "/");
-                const segments = normalized.split("/");
-                const encoded = segments.map(segment => {
-                  if (segment.match(/^[A-Za-z]:$/)) {
-                    return segment;
-                  }
-                  return encodeURIComponent(decodeURIComponent(segment));
-                }).join("/");
-                fileUrl = "file:///" + encoded;
-              }
-              
-              return {
-                id: f.id || Utils.generateId(),
-                name: f.name,
-                path: fileUrl || fsPath || "",
-                fsPath: fsPath || "",
-                thumbnail: f.thumbnail || null,
-                size: f.size || 0,
-                createdAt: f.createdAt || new Date().toISOString(),
-                modifiedAt: f.modifiedAt || new Date().toISOString(),
-                type: f.type || "image/png",
-                folder: label,
-                dimensions: f.dimensions || { width: 0, height: 0 },
-                needsThumbnail: !f.thumbnail
-              };
-            });
-            
-            // 直接更新 FileManager
-            this.fileManager.files.clear();
-            for (const file of files) {
-              this.fileManager.files.set(file.id, file);
-            }
-            
-            // 更新 UI
-            this.fileManager.eventEmitter.emit("filesLoaded", this.fileManager.getFilteredFiles());
-            
-            // 啟動縮圖載入
-            this.fileManager.thumbnailQueue = files.filter(f => !f.thumbnail && f.fsPath).map(f => f.id);
-            this.fileManager.loadThumbnailsLazy?.(5, 150);
-          }
-        }
-      }
+      await this.fileManager.loadFolder(this.currentFolder);
     } catch (error) {
-      console.warn("Failed to initialize files:", error);
-      // 發生錯誤時使用預設載入
-      this.fileManager.loadFolder(this.currentFolder);
+      console.error("Failed to load folder:", error);
+      this.ui.showNotification("無法載入檔案", "error");
     }
 
     // 更新 UI 狀態

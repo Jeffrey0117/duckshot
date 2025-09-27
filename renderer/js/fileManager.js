@@ -58,13 +58,16 @@ class FileManager {
     if (this.isProcessingThumbnails) return;
     this.isProcessingThumbnails = true;
 
+    const initialQueueSize = this.thumbnailQueue.length;
+    console.log(`[縮圖載入] 開始處理 ${initialQueueSize} 個縮圖`);
+
     const worker = async () => {
       while (true) {
         const fileId = this.thumbnailQueue.shift();
         if (!fileId) break;
 
         const file = this.files.get(fileId);
-        if (!file) continue;
+        if (!file || !file.needsThumbnail) continue;
 
         if (window.electronAPI?.files?.getThumbnail) {
           try {
@@ -79,80 +82,87 @@ class FileManager {
               fsPath = decoded.replace(/\//g, "\\");
             }
             if (fsPath) {
-              console.log("[Thumbnail] Loading for:", fsPath);
               const thumbnail = await window.electronAPI.files.getThumbnail(fsPath, thumbWidth);
               if (thumbnail) {
-                console.log("[Thumbnail] Generated for:", fsPath);
                 file.thumbnail = thumbnail;
                 file.needsThumbnail = false;
                 // 通知 UI 更新單個檔案
                 this.eventEmitter.emit("thumbnailLoaded", file);
-              } else {
-                console.warn("[Thumbnail] No thumbnail returned for:", fsPath);
               }
-            } else {
-              console.warn("[Thumbnail] No fsPath available for:", file.name, file.path);
             }
           } catch (error) {
-            console.warn("[Thumbnail] Failed to load thumbnail:", error, "for file:", file.name);
+            // 靜默失敗，避免過多console輸出
+            file.needsThumbnail = false; // 避免重試
           }
-
-          // 避免阻塞 UI，適度延遲（減少延遲以加快載入）
-          await new Promise(resolve => setTimeout(resolve, 20));
         }
       }
     };
 
-    // 啟動多個 worker 并行處理
-    const n = Math.max(1, Math.min(maxConcurrency, 3));
+    // 使用固定高並行度，確保快速處理
+    const n = Math.min(maxConcurrency, 10);
     const tasks = Array.from({ length: n }, () => worker());
     await Promise.all(tasks);
 
     this.isProcessingThumbnails = false;
+    
+    // 如果還有剩餘的縮圖需要載入，立即繼續
+    if (this.thumbnailQueue.length > 0) {
+      console.log(`[縮圖載入] 繼續處理剩餘 ${this.thumbnailQueue.length} 個縮圖`);
+      // 立即繼續，不延遲
+      setImmediate(() => {
+        this.loadThumbnailsLazy(maxConcurrency, thumbWidth);
+      });
+    } else {
+      console.log(`[縮圖載入] 全部完成`);
+    }
   }
 
-  async loadFolder(folderName, skipLoad = false) {
+  async loadFolder(folderName) {
     if (this.isLoading) return;
 
     this.isLoading = true;
     this.currentFolder = folderName;
 
     try {
-      // 如果已經有檔案且要跳過載入，只觸發事件更新 UI
-      if (skipLoad && this.files.size > 0) {
-        console.log("[FileManager] Skipping load, using existing files:", this.files.size);
-        this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
-      } else {
-        // 從檔案系統讀取
-        const files = await this.getFilesFromFolder(folderName);
+      // 從檔案系統讀取
+      const files = await this.getFilesFromFolder(folderName);
 
-        this.files.clear();
-        files.forEach((file) => {
-          this.files.set(file.id, file);
-        });
+      this.files.clear();
+      files.forEach((file) => {
+        this.files.set(file.id, file);
+      });
 
-        // 診斷：記錄載入的檔案數量與目前分頁
-        console.log("[FileManager] files loaded:", {
-          folder: this.currentFolder,
-          count: this.files.size
-        });
+      // 診斷：記錄載入的檔案數量與目前分頁
+      console.log("[FileManager] files loaded:", {
+        folder: this.currentFolder,
+        count: this.files.size
+      });
 
-        // 觸發事件給外部
-        this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
-      }
+      // 觸發事件給外部
+      this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
 
-      // 啟動縮圖延遲載入：把沒有縮圖的檔案加入隊列
+      // 啟動縮圖載入 - 使用 getFilteredFiles() 來保持與 UI 顯示順序一致
       try {
         this.thumbnailQueue = [];
-        for (const f of this.getFilteredFiles()) {
-          if (!f.thumbnail && f.path) {
+        
+        // 使用 getFilteredFiles() 來獲取已排序的檔案（與 UI 顯示順序一致）
+        const files = this.getFilteredFiles();
+        
+        // 按照顯示順序加入隊列
+        files.forEach((f) => {
+          if (!f.thumbnail && f.path && f.fsPath) {
             f.needsThumbnail = true;
             this.thumbnailQueue.push(f.id);
           }
-        }
-        // 增加並行度以加快載入
+        });
+        
+        console.log(`[縮圖隊列] 準備載入 ${this.thumbnailQueue.length} 個縮圖（按顯示順序）`);
+        
         if (this.thumbnailQueue.length > 0) {
-          this.loadThumbnailsLazy(5, 150);
+          // 立即啟動高並行載入
+          setImmediate(() => {
+            this.loadThumbnailsLazy(10, 150);
+          });
         }
       } catch (e) {
         console.warn("thumbnail preload queue failed:", e);
@@ -238,22 +248,33 @@ class FileManager {
             };
           });
 
-          // 如果有更多檔案，監聽延遲載入
+          // 如果有更多檔案，監聽批次載入
           if (res.hasMore && window.electronAPI?.on) {
             // 移除舊的監聽器避免重複
-            window.electronAPI.off?.("more-files-loaded");
+            window.electronAPI.off?.("batch-files-loaded");
             
-            // 監聽延遲載入的檔案
-            window.electronAPI.on("more-files-loaded", (_event, payload) => {
+            // 監聽批次載入的檔案
+            window.electronAPI.on("batch-files-loaded", (_event, payload) => {
               if (payload?.files && Array.isArray(payload.files)) {
-                console.log(`收到延遲載入的 ${payload.files.length} 個檔案`);
+                console.log(`[批次 ${payload.batchNumber}] 載入 ${payload.files.length} 個檔案`);
                 
-                // 處理延遲載入的檔案
+                // 處理批次載入的檔案
+                const batchFiles = [];
                 payload.files.forEach(f => {
                   const fsPath = typeof f.path === "string" ? f.path : "";
-                  const fileUrl = typeof fsPath === "string"
-                    ? (fsPath.startsWith("file://") ? fsPath : encodeURI("file:///" + fsPath.replace(/\\/g, "/")))
-                    : "";
+                  // 修正：正確處理中文路徑編碼
+                  let fileUrl = "";
+                  if (fsPath) {
+                    const normalized = fsPath.replace(/\\/g, "/");
+                    const segments = normalized.split("/");
+                    const encoded = segments.map(segment => {
+                      if (segment.match(/^[A-Za-z]:$/)) {
+                        return segment;
+                      }
+                      return encodeURIComponent(decodeURIComponent(segment));
+                    }).join("/");
+                    fileUrl = "file:///" + encoded;
+                  }
                     
                   const file = {
                     id: f.id || Utils.generateId(),
@@ -267,17 +288,35 @@ class FileManager {
                     type: f.type || "image/png",
                     folder: folderLabel,
                     dimensions: f.dimensions || { width: 0, height: 0 },
-                    needsThumbnail: true
+                    needsThumbnail: !f.thumbnail
                   };
                   
                   // 加入到檔案列表
                   this.files.set(file.id, file);
                   // 排入縮圖隊列
-                  this.thumbnailQueue.push(file.id);
+                  if (file.needsThumbnail) {
+                    this.thumbnailQueue.push(file.id);
+                  }
+                  batchFiles.push(file);
                 });
                 
                 // 通知 UI 更新
                 this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
+                
+                // 批次載入縮圖（提高並行度）
+                if (this.thumbnailQueue.length > 0 && !this.isProcessingThumbnails) {
+                  // 依批次調整並行度
+                  const concurrency = payload.batchNumber === 2 ? 5 : 3;
+                  this.loadThumbnailsLazy(concurrency, 150);
+                }
+                
+                // 顯示載入進度（非最後一批才顯示）
+                if (payload.hasMore) {
+                  const totalLoaded = this.files.size;
+                  console.log(`[批次載入] 已載入 ${totalLoaded} 個檔案，還有更多...`);
+                } else {
+                  console.log(`[批次載入] 全部載入完成，共 ${this.files.size} 個檔案`);
+                }
               }
             });
           }

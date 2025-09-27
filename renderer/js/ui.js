@@ -219,7 +219,7 @@ class UIManager {
     }
   }
 
-  // 更新圖片網格
+  // 更新圖片網格 - 優化批次載入
   updateImageGrid(files) {
 
     const grid = document.getElementById("image-grid");
@@ -233,16 +233,38 @@ class UIManager {
     }
 
     emptyState.style.display = "none";
-    grid.innerHTML = "";
-
-    // 簡單高效：直接插入所有檔案（對現代機器來說，幾百張檔案完全可接受）
+    
+    // 收集現有的卡片 ID
+    const existingCards = new Map();
+    grid.querySelectorAll(".file-item").forEach(card => {
+      const id = card.dataset.imageId;
+      if (id) {
+        existingCards.set(id, card);
+      }
+    });
+    
+    // 使用 DocumentFragment 提高效能
+    const fragment = document.createDocumentFragment();
+    let newCardsAdded = 0;
+    
+    // 只添加新的卡片
     files.forEach((file) => {
-      const card = this.createImageCard(file);
-      grid.appendChild(card);
+      if (!existingCards.has(file.id)) {
+        const card = this.createImageCard(file);
+        fragment.appendChild(card);
+        newCardsAdded++;
+      }
     });
 
-    // 初始化圖示
-    lucide.createIcons();
+    // 一次性添加所有新卡片
+    if (newCardsAdded > 0) {
+      grid.appendChild(fragment);
+      
+      // 初始化圖示
+      lucide.createIcons();
+      
+      console.log(`[UI] 新增 ${newCardsAdded} 張卡片，總共 ${files.length} 張`);
+    }
 
     // 同步狀態列
     try {
