@@ -290,11 +290,12 @@
 
         async init() {
           console.log('CaptureScreen: init() 開始');
-          // 設定畫布大小為螢幕大小
-          this.canvas.width = window.screen.width;
-          this.canvas.height = window.screen.height;
-          this.maskCanvas.width = window.screen.width;
-          this.maskCanvas.height = window.screen.height;
+          
+          // === 螢幕環境診斷 ===
+          this.diagnoseDPI();
+          
+          // 設定畫布大小為螢幕大小（DPI 感知）
+          this.setupCanvasWithDPI();
 
           console.log('CaptureScreen: 畫布設定完成', this.canvas.width, 'x', this.canvas.height);
 
@@ -303,6 +304,67 @@
 
           // 監聽螢幕數據
           this.listenForScreenData();
+        }
+
+        // 螢幕環境診斷
+        diagnoseDPI() {
+          const diagnostics = {
+            devicePixelRatio: window.devicePixelRatio,
+            screenSize: { width: window.screen.width, height: window.screen.height },
+            viewportSize: { width: window.innerWidth, height: window.innerHeight },
+            colorDepth: window.screen.colorDepth,
+            pixelDepth: window.screen.pixelDepth
+          };
+          
+          console.log('=== 螢幕環境診斷 ===');
+          console.log('Device Pixel Ratio:', diagnostics.devicePixelRatio);
+          console.log('螢幕尺寸:', diagnostics.screenSize);
+          console.log('視窗尺寸:', diagnostics.viewportSize);
+          console.log('色彩深度:', diagnostics.colorDepth, 'bits');
+          console.log('像素深度:', diagnostics.pixelDepth, 'bits');
+          
+          // 檢查是否為高 DPI 螢幕
+          if (diagnostics.devicePixelRatio > 1) {
+            console.log('⚠️ 檢測到高 DPI 螢幕，需要進行 DPI 適配');
+          } else {
+            console.log('✅ 標準 DPI 螢幕');
+          }
+          
+          this.screenDiagnostics = diagnostics;
+        }
+
+        // DPI 感知的 Canvas 設置
+        setupCanvasWithDPI() {
+          const dpr = window.devicePixelRatio || 1;
+          const screenWidth = window.screen.width;
+          const screenHeight = window.screen.height;
+          
+          // 設置 Canvas 實際解析度（考慮 DPI）
+          this.canvas.width = screenWidth * dpr;
+          this.canvas.height = screenHeight * dpr;
+          this.maskCanvas.width = screenWidth * dpr;
+          this.maskCanvas.height = screenHeight * dpr;
+          
+          // 設置 Canvas CSS 顯示尺寸
+          this.canvas.style.width = screenWidth + 'px';
+          this.canvas.style.height = screenHeight + 'px';
+          this.maskCanvas.style.width = screenWidth + 'px';
+          this.maskCanvas.style.height = screenHeight + 'px';
+          
+          // 縮放 Canvas 上下文以匹配 DPI
+          this.ctx.scale(dpr, dpr);
+          this.maskCtx.scale(dpr, dpr);
+          
+          // 設置圖片渲染品質
+          this.ctx.imageSmoothingEnabled = true;
+          this.ctx.imageSmoothingQuality = 'high';
+          
+          console.log('=== Canvas DPI 設置 ===');
+          console.log('Device Pixel Ratio:', dpr);
+          console.log('Canvas 實際尺寸:', this.canvas.width, 'x', this.canvas.height);
+          console.log('Canvas CSS 尺寸:', this.canvas.style.width, this.canvas.style.height);
+          console.log('圖片平滑設置:', this.ctx.imageSmoothingEnabled);
+          console.log('圖片平滑品質:', this.ctx.imageSmoothingQuality);
         }
 
         listenForScreenData() {
@@ -318,14 +380,53 @@
         loadScreenImage(screenData) {
           const img = new Image();
           img.onload = () => {
+            console.log('=== 圖片載入診斷 ===');
+            console.log('原始圖片尺寸:', img.naturalWidth, 'x', img.naturalHeight);
+            console.log('Canvas 尺寸:', this.canvas.width, 'x', this.canvas.height);
+            console.log('縮放比例:', this.canvas.width / img.naturalWidth, 'x', this.canvas.height / img.naturalHeight);
+            
+            // 檢查圖片與 Canvas 尺寸匹配程度
+            const scaleX = this.canvas.width / img.naturalWidth;
+            const scaleY = this.canvas.height / img.naturalHeight;
+            if (Math.abs(scaleX - 1) > 0.01 || Math.abs(scaleY - 1) > 0.01) {
+              console.log('⚠️ 圖片需要縮放，可能影響品質');
+            } else {
+              console.log('✅ 圖片尺寸匹配，無需縮放');
+            }
+            
             console.log('CaptureScreen: 繪製背景圖片');
-            this.ctx.drawImage(
-              img,
-              0,
-              0,
-              this.canvas.width,
-              this.canvas.height
-            );
+            
+            // 使用高品質的繪製方式
+            this.ctx.save();
+            
+            // 如果是高 DPI，需要調整繪製方式
+            const dpr = window.devicePixelRatio || 1;
+            if (dpr > 1) {
+              // 高 DPI 下的精確繪製
+              this.ctx.drawImage(
+                img,
+                0,
+                0,
+                img.naturalWidth,
+                img.naturalHeight,
+                0,
+                0,
+                window.screen.width,
+                window.screen.height
+              );
+            } else {
+              // 標準 DPI 繪製
+              this.ctx.drawImage(
+                img,
+                0,
+                0,
+                this.canvas.width,
+                this.canvas.height
+              );
+            }
+            
+            this.ctx.restore();
+            
             // 重置重新抓取狀態
             this.hasRecaptured = false;
             

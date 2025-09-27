@@ -11,6 +11,30 @@ const path = require("path");
 const fs = require("fs").promises;
 const os = require("os");
 
+// 依顯示器 scaleFactor 動態計算最適縮圖尺寸（DPR 感知）
+function getOptimalThumbnailSize() {
+  try {
+    const displays = electron.screen.getAllDisplays();
+    let maxW = 0, maxH = 0;
+    for (const d of displays) {
+      const scale = d.scaleFactor || 1;
+      const w = Math.round(d.size.width * scale);
+      const h = Math.round(d.size.height * scale);
+      if (w * h > maxW * maxH) {
+        maxW = w;
+        maxH = h;
+      }
+    }
+    if (maxW > 0 && maxH > 0) {
+      return { width: maxW, height: maxH };
+    }
+  } catch (e) {
+    console.warn("getOptimalThumbnailSize error:", e.message);
+  }
+  // 後備：預設 4K
+  return { width: 3840, height: 2160 };
+}
+
 // 工具函式：用於控制等待時機
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -290,7 +314,7 @@ class DukshotApp {
 
         const sources = await desktopCapturer.getSources({
           types: ["screen", "window"],
-          thumbnailSize: { width: 1920, height: 1080 },
+          thumbnailSize: getOptimalThumbnailSize(),
           fetchWindowIcons: false,
         });
 
@@ -618,7 +642,7 @@ class DukshotApp {
       console.debug("[區域截圖] 步驟4 - 開始擷取桌面畫面");
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
-        thumbnailSize: { width: 3840, height: 2160 },
+        thumbnailSize: getOptimalThumbnailSize(),
       });
 
       if (sources.length === 0) {
@@ -653,7 +677,7 @@ class DukshotApp {
       // 獲取主螢幕
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
-        thumbnailSize: { width: 1920, height: 1080 },
+        thumbnailSize: getOptimalThumbnailSize(),
       });
 
       if (sources.length === 0) {
@@ -666,7 +690,7 @@ class DukshotApp {
       // 獲取更高解析度的縮圖作為截圖
       const highResSources = await desktopCapturer.getSources({
         types: ["screen"],
-        thumbnailSize: { width: 3840, height: 2160 }, // 4K解析度
+        thumbnailSize: getOptimalThumbnailSize(),
       });
 
       const imageData = highResSources[0].thumbnail.toDataURL();
@@ -699,7 +723,7 @@ class DukshotApp {
       // 獲取視窗源
       const sources = await desktopCapturer.getSources({
         types: ["window"],
-        thumbnailSize: { width: 2560, height: 1440 }, // 更高解析度
+        thumbnailSize: getOptimalThumbnailSize(),
       });
 
       if (sources.length === 0) {
