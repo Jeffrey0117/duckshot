@@ -238,7 +238,7 @@
     </style>
   </head>
   <body>
-    <div class="help-text">按住滑鼠左鍵並拖拽選擇截圖區域，按 ESC 取消截圖，右鍵重新抓取或再次取消</div>
+    <div class="help-text">拖曳選區｜Esc 取消｜右鍵重抓/取消｜F6 平滑開關｜Enter 儲存｜Ctrl+C 複製</div>
 
     <canvas id="captureCanvas"></canvas>
     <canvas id="maskCanvas"></canvas>
@@ -807,6 +807,12 @@
             // 切換影像平滑策略，便於 A/B 測試
             this.toggleSmoothing();
             this.updateSmoothingBadge();
+          } else if ((event.ctrlKey || event.metaKey) && (event.key === "c" || event.key === "C")) {
+            // Ctrl/Cmd + C 複製
+            if (this.selectedRegion) {
+              event.preventDefault();
+              this.copyToClipboard();
+            }
           }
         }
 
