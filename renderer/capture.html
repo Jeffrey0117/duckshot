@@ -855,24 +855,35 @@
           if (!this.selectedRegion) return;
 
           try {
-            // 創建臨時畫布來裁切選中區域
+            const dpr = window.devicePixelRatio || 1;
+
+            // 創建臨時畫布來裁切選中區域（DPR 感知）
             const tempCanvas = document.createElement("canvas");
             const tempCtx = tempCanvas.getContext("2d");
 
-            tempCanvas.width = this.selectedRegion.width;
-            tempCanvas.height = this.selectedRegion.height;
+            const srcX = Math.round(this.selectedRegion.x * dpr);
+            const srcY = Math.round(this.selectedRegion.y * dpr);
+            const srcW = Math.round(this.selectedRegion.width * dpr);
+            const srcH = Math.round(this.selectedRegion.height * dpr);
 
-            // 裁切選中區域
+            tempCanvas.width = srcW;
+            tempCanvas.height = srcH;
+
+            // 高品質繪製設定（可依需要調整）
+            tempCtx.imageSmoothingEnabled = true;
+            tempCtx.imageSmoothingQuality = "high";
+
+            // 裁切選中區域（從高解析度 Canvas 擷取）
             tempCtx.drawImage(
               this.canvas,
-              this.selectedRegion.x,
-              this.selectedRegion.y,
-              this.selectedRegion.width,
-              this.selectedRegion.height,
+              srcX,
+              srcY,
+              srcW,
+              srcH,
               0,
               0,
-              this.selectedRegion.width,
-              this.selectedRegion.height
+              srcW,
+              srcH
             );
 
             // 將圖片數據發送到主進程
@@ -884,7 +895,6 @@
             );
 
             if (result.success) {
-              // 關閉截圖視窗
               window.close();
             } else {
               alert("儲存截圖失敗: " + (result.error || "未知錯誤"));
@@ -899,24 +909,35 @@
           if (!this.selectedRegion) return;
 
           try {
-            // 創建臨時畫布來裁切選中區域
+            const dpr = window.devicePixelRatio || 1;
+
+            // 創建臨時畫布來裁切選中區域（DPR 感知）
             const tempCanvas = document.createElement("canvas");
             const tempCtx = tempCanvas.getContext("2d");
 
-            tempCanvas.width = this.selectedRegion.width;
-            tempCanvas.height = this.selectedRegion.height;
+            const srcX = Math.round(this.selectedRegion.x * dpr);
+            const srcY = Math.round(this.selectedRegion.y * dpr);
+            const srcW = Math.round(this.selectedRegion.width * dpr);
+            const srcH = Math.round(this.selectedRegion.height * dpr);
+
+            tempCanvas.width = srcW;
+            tempCanvas.height = srcH;
+
+            // 高品質繪製設定（可依需要調整）
+            tempCtx.imageSmoothingEnabled = true;
+            tempCtx.imageSmoothingQuality = "high";
 
             // 裁切選中區域
             tempCtx.drawImage(
               this.canvas,
-              this.selectedRegion.x,
-              this.selectedRegion.y,
-              this.selectedRegion.width,
-              this.selectedRegion.height,
+              srcX,
+              srcY,
+              srcW,
+              srcH,
               0,
               0,
-              this.selectedRegion.width,
-              this.selectedRegion.height
+              srcW,
+              srcH
             );
 
             // 將圖片轉換為 blob
@@ -925,7 +946,6 @@
                 await navigator.clipboard.write([
                   new ClipboardItem({ [blob.type]: blob })
                 ]);
-                // 關閉截圖視窗
                 window.close();
               } catch (error) {
                 console.error("Error copying to clipboard:", error);
