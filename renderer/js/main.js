@@ -21,6 +21,8 @@ class DukshotApp {
     this.skipNextRefresh = false; // 截圖後避免立即 refresh 把新圖覆蓋掉
     this.lastSelectedIndex = undefined; // 用於 Shift 多選
     this.lastRefreshTime = 0; // 記錄上次刷新時間，避免頻繁刷新
+    this.lastFilesLoadTime = 0; // 記錄最後檔案載入通知時間，避免重複通知
+    this.pendingThumbnailUpdate = false; // 縮圖批次更新標記
   }
 
   async init() {
@@ -41,52 +43,9 @@ class DukshotApp {
       // 載入設定
       await this.loadSettings();
 
-      // 初始化 UI
-      this.initUI();
+      // 初始化 UI (包含載入檔案)
+      await this.initUI();
 
-// 依主進程預設儲存目錄動態更新分頁名稱與載入資料夾（Desktop→桌面）
-(async () => {
-  try {
-    if (window.electronAPI?.files?.listScreenshots) {
-      const res = await window.electronAPI.files.listScreenshots();
-      if (res?.success) {
-        const dir = res.directory || "";
-        const base = (dir.split(/[\\/]/).pop() || "").trim();
-        const label = base.toLowerCase() === "desktop" ? "桌面" : (base || "今日");
- 
-        // 若與預設「今日」不同，更新 currentFolder 與分頁標籤
-        if (label !== this.currentFolder) {
-          this.currentFolder = label;
- 
-          // 找到目前啟用的分頁或預設「今日」分頁，修改顯示文字
-          const activeTab =
-            document.querySelector(".tab.active") ||
-            document.querySelector(`.tab[data-folder="今日"]`);
-          if (activeTab) {
-            activeTab.dataset.folder = label;
-            const span = activeTab.querySelector("span");
-            if (span) span.textContent = label;
-          }
- 
-          // 設定給 FileManager 供「開啟資料夾」使用
-          if (res.directory) {
-            this.fileManager.lastDirectory = res.directory;
-          }
- 
-          // 重新載入正確資料夾內容（避免仍載入「今日」）
-          this.fileManager.loadFolder(this.currentFolder);
-        } else {
-          // 標籤不變時，仍同步記錄實際儲存路徑
-          if (res.directory) {
-            this.fileManager.lastDirectory = res.directory;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to align current folder label with default save dir:", e);
-  }
-})();
       // 標記為已初始化
       this.initialized = true;
 
@@ -129,6 +88,17 @@ class DukshotApp {
     this.fileManager.on("filesLoaded", (files) => {
       this.ui.updateImageGrid(files);
       this.ui.updateStatusBar(files.length, files);
+      try {
+        console.log("[App] filesLoaded count:", files?.length ?? -1);
+        // 只在主要載入時顯示通知，避免批次載入時重複通知
+        if (Array.isArray(files) && files.length > 0 && !this.skipNextRefresh) {
+          // 防抖：避免短時間內重複顯示（增加到5秒避免重複）
+          if (!this.lastFilesLoadTime || Date.now() - this.lastFilesLoadTime > 5000) {
+            this.ui.showNotification(`已載入 ${files.length} 張圖片`, "success", 1500);
+            this.lastFilesLoadTime = Date.now();
+          }
+        }
+      } catch {}
     });
 
     this.fileManager.on("fileSelected", (file) => {
@@ -139,6 +109,21 @@ class DukshotApp {
     this.fileManager.on("fileDeselected", (file) => {
       this.selectedImages.delete(file.id);
       this.ui.updateSelectionUI(this.selectedImages);
+    });
+
+    // 縮圖載入完成時，局部更新單個縮圖（避免整個網格重新渲染）
+    this.fileManager.on("thumbnailLoaded", (file) => {
+      // 只更新單個縮圖，不重新渲染整個網格
+      const item = document.querySelector(`[data-image-id="${file.id}"]`);
+      if (item && file.thumbnail) {
+        const img = item.querySelector("img");
+        const thumbnail = item.querySelector(".file-thumbnail");
+        if (img && thumbnail) {
+          img.src = file.thumbnail;
+          img.style.display = "block";
+          thumbnail.classList.remove("loading");
+        }
+      }
     });
 
     // 截圖功能事件
@@ -195,26 +180,7 @@ class DukshotApp {
       });
     }
 
-    // 監聽從截圖視窗（renderer/capture.html）經主程序轉送的完成事件
-    // 用於區域截圖在另一路徑保存後，主視窗即時加入清單顯示
-    if (window.electronAPI?.on) {
-      window.electronAPI.on("capture-completed", (_event, payload) => {
-        try {
-          const imageData = payload?.data || payload?.imageData;
-          if (imageData) {
-            const filename = this.capture.generateFilename("png");
-            this.fileManager.addScreenshot(imageData, filename);
-            this.ui.showNotification("區域截圖完成，已加入清單！", "success");
-          } else {
-            this.ui.showNotification("區域截圖完成", "success");
-            this.fileManager.refresh();
-          }
-        } catch (e) {
-          console.error("Failed to handle capture-completed event:", e);
-          this.ui.showNotification("無法更新清單（區域截圖）", "warning");
-        }
-      });
-    }
+    // 重複的事件監聽器已移除，避免通知顯示兩次
 
     // 設定變更事件
     this.settings.on("themeChanged", (theme) => {
@@ -490,12 +456,93 @@ class DukshotApp {
     // 其他設定...
   }
 
-  initUI() {
+  async initUI() {
     // 初始化空狀態
     this.ui.showEmptyState();
 
-    // 載入當前資料夾的檔案
-    this.fileManager.loadFolder(this.currentFolder);
+    // 只載入一次檔案，避免重複呼叫
+    try {
+      // 先取得正確的目錄名稱
+      if (window.electronAPI?.files?.listScreenshots) {
+        const res = await window.electronAPI.files.listScreenshots();
+        if (res?.success) {
+          const dir = res.directory || "";
+          const base = (dir.split(/[\\/]/).pop() || "").trim();
+          const label = base.toLowerCase() === "desktop" ? "桌面" : (base || "今日");
+          
+          // 更新當前資料夾名稱
+          if (label !== this.currentFolder) {
+            this.currentFolder = label;
+            
+            // 更新分頁標籤
+            const activeTab = document.querySelector(".tab.active") ||
+                            document.querySelector(`.tab[data-folder="今日"]`);
+            if (activeTab) {
+              activeTab.dataset.folder = label;
+              const span = activeTab.querySelector("span");
+              if (span) span.textContent = label;
+            }
+          }
+          
+          // 記錄實際目錄路徑
+          if (res.directory) {
+            this.fileManager.lastDirectory = res.directory;
+          }
+          
+          // 處理檔案（如果有的話）
+          if (res.files && res.files.length > 0) {
+            const files = res.files.map(f => {
+              const fsPath = typeof f.path === "string" ? f.path : "";
+              // 修正：正確處理中文路徑編碼
+              let fileUrl = "";
+              if (fsPath) {
+                const normalized = fsPath.replace(/\\/g, "/");
+                const segments = normalized.split("/");
+                const encoded = segments.map(segment => {
+                  if (segment.match(/^[A-Za-z]:$/)) {
+                    return segment;
+                  }
+                  return encodeURIComponent(decodeURIComponent(segment));
+                }).join("/");
+                fileUrl = "file:///" + encoded;
+              }
+              
+              return {
+                id: f.id || Utils.generateId(),
+                name: f.name,
+                path: fileUrl || fsPath || "",
+                fsPath: fsPath || "",
+                thumbnail: f.thumbnail || null,
+                size: f.size || 0,
+                createdAt: f.createdAt || new Date().toISOString(),
+                modifiedAt: f.modifiedAt || new Date().toISOString(),
+                type: f.type || "image/png",
+                folder: label,
+                dimensions: f.dimensions || { width: 0, height: 0 },
+                needsThumbnail: !f.thumbnail
+              };
+            });
+            
+            // 直接更新 FileManager
+            this.fileManager.files.clear();
+            for (const file of files) {
+              this.fileManager.files.set(file.id, file);
+            }
+            
+            // 更新 UI
+            this.fileManager.eventEmitter.emit("filesLoaded", this.fileManager.getFilteredFiles());
+            
+            // 啟動縮圖載入
+            this.fileManager.thumbnailQueue = files.filter(f => !f.thumbnail && f.fsPath).map(f => f.id);
+            this.fileManager.loadThumbnailsLazy?.(5, 150);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to initialize files:", error);
+      // 發生錯誤時使用預設載入
+      this.fileManager.loadFolder(this.currentFolder);
+    }
 
     // 更新 UI 狀態
     this.updateUIState();

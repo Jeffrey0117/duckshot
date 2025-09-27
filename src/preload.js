@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   files: {
     openFolder: (folderPath) => ipcRenderer.invoke("open-folder", folderPath),
     listScreenshots: () => ipcRenderer.invoke("list-screenshots"),
+    getThumbnail: (filePath, width) => ipcRenderer.invoke("get-thumbnail", filePath, width),
   },
 
   // 設定 API
@@ -47,6 +48,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "capture-cancelled",
       "settings-updated",
       "screen-data",
+      "more-files-loaded",
     ];
 
     if (validChannels.includes(channel)) {

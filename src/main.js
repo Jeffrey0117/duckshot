@@ -6,10 +6,23 @@ const {
   desktopCapturer,
   dialog,
   shell,
+  app,
 } = electron;
 const path = require("path");
 const fs = require("fs").promises;
 const os = require("os");
+
+// 修復快取問題：禁用GPU快取以避免建立失敗
+app.commandLine.appendSwitch('--disable-gpu-sandbox');
+app.commandLine.appendSwitch('--disable-software-rasterizer');
+app.commandLine.appendSwitch('--disable-background-timer-throttling');
+app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('--disable-renderer-backgrounding');
+app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
+
+// 在應用程式初始化前設定快取路徑至用戶目錄
+const userDataPath = path.join(os.homedir(), 'AppData', 'Local', 'Dukshot');
+app.setPath('userData', userDataPath);
 
 // 依顯示器 scaleFactor 動態計算最適縮圖尺寸（DPR 感知）
 function getOptimalThumbnailSize() {
@@ -214,7 +227,8 @@ class DukshotApp {
         nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js"),
-        webSecurity: true,
+        // 允許載入本機 file:/// 圖片（避免跨來源限制導致縮圖不顯示）
+        webSecurity: false,
       },
       icon: path.join(__dirname, "../assets/icons/logo-imgup.png"),
       show: false, // 先不顯示，等載入完成後再顯示
@@ -382,8 +396,10 @@ class DukshotApp {
         const pathMod = require("path");
 
         // 使用預設儲存目錄（可由設定覆蓋，預設為桌面）
-        const targetDir = this.getDefaultSaveDir();
-        await fsp.mkdir(targetDir, { recursive: true });
+        const targetDir = await this.getValidSaveDir();
+        await fsp.mkdir(targetDir, { recursive: true }).catch(err => {
+          console.warn(`[save-screenshot] 建立目錄失敗，嘗試繼續: ${err.message}`);
+        });
 
         console.log(`Save path: ${targetDir}`);
 
@@ -446,8 +462,13 @@ class DukshotApp {
     // 開啟檔案夾（若未提供路徑，開啟預設截圖資料夾）
     ipcMain.handle("open-folder", async (event, folderPath) => {
       try {
-        const targetPath = folderPath || this.getDefaultSaveDir();
-        await shell.openPath(targetPath);
+        const targetPath = folderPath || await this.getValidSaveDir();
+        const result = await shell.openPath(targetPath);
+        if (result) {
+          // shell.openPath 返回錯誤字串時表示失敗
+          console.error("Error opening folder:", result);
+          return { success: false, error: result };
+        }
         return { success: true, path: targetPath };
       } catch (error) {
         console.error("Error opening folder:", error);
@@ -469,12 +490,30 @@ class DukshotApp {
     // 列出預設截圖資料夾中的圖片（用於前端顯示）- 優化版本
     ipcMain.handle("list-screenshots", async () => {
       try {
-        const dir = this.getDefaultSaveDir();
-        await fs.mkdir(dir, { recursive: true });
+        const dir = await this.getValidSaveDir();
+        console.log(`[list-screenshots] Target directory: ${dir}`);
+        
+        // 確保目錄存在
+        try {
+          await fs.mkdir(dir, { recursive: true });
+        } catch (err) {
+          console.warn(`[list-screenshots] Failed to create directory: ${err.message}`);
+        }
 
         const fsp = require("fs").promises;
         const pathMod = require("path");
+        
+        // 檢查目錄是否可讀取
+        try {
+          await fsp.access(dir, fsp.constants.R_OK);
+        } catch (accessError) {
+          console.error(`[list-screenshots] Cannot read directory: ${dir}`, accessError);
+          // 嘗試返回空結果而非錯誤
+          return { success: true, files: [], directory: dir, hasMore: false, totalCount: 0 };
+        }
+        
         const entries = await fsp.readdir(dir, { withFileTypes: true });
+        console.log(`[list-screenshots] Found ${entries.length} items`);
 
         // 以資料夾名產生顯示用分頁標籤（Desktop → 桌面）
         const dirName = pathMod.basename(dir);
@@ -482,118 +521,144 @@ class DukshotApp {
           dirName.toLowerCase() === "desktop" ? "桌面" : dirName;
 
         // 只取常見圖片副檔名
-        const exts = new Set([".png", ".jpg", ".jpeg", ".webp"]);
+        const exts = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
         
-        // 極速優化：只取前 50 個檔案立即返回，其餘在背景載入
-        const MAX_INITIAL_FILES = 50;
+        // 改為載入所有檔案
         const filteredEntries = entries.filter(entry => {
           if (!entry.isFile()) return false;
           const ext = pathMod.extname(entry.name).toLowerCase();
           return exts.has(ext);
         });
 
-        // 分成初始批次和延遲批次
-        const initialBatch = filteredEntries.slice(0, MAX_INITIAL_FILES);
-        const remainingBatch = filteredEntries.slice(MAX_INITIAL_FILES);
-
-        // 並行處理初始批次（前50個檔案）
-        const initialFilePromises = initialBatch.map(async (entry) => {
+        // 極速處理所有檔案 - 初始載入跳過 stat，在背景補充
+        const allFiles = filteredEntries.map((entry) => {
           const full = pathMod.join(dir, entry.name);
+          const ext = pathMod.extname(entry.name).replace(".", "");
           
-          try {
-            // 使用 stat 的簡化版本，只取必要資訊
-            const stat = await fsp.stat(full);
-            
-            return {
-              id: `${full}:${stat.mtimeMs}`,
-              name: entry.name,
-              path: full,
-              thumbnail: null, // 完全不載入縮圖
-              size: stat.size,
-              createdAt: stat.birthtime?.toISOString?.() || new Date().toISOString(),
-              modifiedAt: stat.mtime?.toISOString?.() || new Date().toISOString(),
-              type: `image/${pathMod.extname(entry.name).replace(".", "")}`,
-              folder: folderLabel,
-              dimensions: null, // 跳過尺寸計算
-              isInitialBatch: true
-            };
-          } catch (e) {
-            return null;
-          }
+          return {
+            id: `${full}:${Date.now()}`,
+            name: entry.name,
+            path: full, // 實體路徑，前端會轉 file:///
+            thumbnail: null, // 延遲載入
+            size: 0, // 跳過檔案大小查詢以加快速度
+            createdAt: new Date().toISOString(),
+            modifiedAt: new Date().toISOString(),
+            type: `image/${ext}`,
+            folder: folderLabel,
+            dimensions: null,
+            needsStat: true // 標記需要延後載入 stat
+          };
         });
 
-        // 處理剩餘檔案（延遲載入）
-        const remainingFilePromises = remainingBatch.map(async (entry) => {
-          const full = pathMod.join(dir, entry.name);
-          
-          try {
-            const stat = await fsp.stat(full);
-            
-            return {
-              id: `${full}:${stat.mtimeMs}`,
-              name: entry.name,
-              path: full,
-              thumbnail: null,
-              size: stat.size,
-              createdAt: stat.birthtime?.toISOString?.() || new Date().toISOString(),
-              modifiedAt: stat.mtime?.toISOString?.() || new Date().toISOString(),
-              type: `image/${pathMod.extname(entry.name).replace(".", "")}`,
-              folder: folderLabel,
-              dimensions: null,
-              isInitialBatch: false
-            };
-          } catch (e) {
-            return null;
-          }
-        });
-
-        // 快速返回初始批次
-        const initialFiles = (await Promise.all(initialFilePromises)).filter(Boolean);
+        console.log(`[list-screenshots] Returning ${allFiles.length} files`);
         
-        // 快速排序（只排序初始批次）
-        initialFiles.sort((a, b) =>
-          new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime()
-        );
-
-        // 如果有剩餘檔案，標記需要載入更多
-        const hasMore = remainingBatch.length > 0;
-        
-        // 背景處理剩餘檔案（不等待）
-        if (hasMore) {
-          Promise.all(remainingFilePromises).then(moreFiles => {
-            const validFiles = moreFiles.filter(Boolean);
-            // 這裡可以透過 IPC 發送給前端
-            if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-              this.mainWindow.webContents.send("more-files-loaded", {
-                files: validFiles,
-                directory: dir
-              });
+        // 背景載入所有檔案的 stat 資訊（不阻塞返回）
+        if (allFiles.length > 0) {
+          setTimeout(async () => {
+            for (const file of allFiles) {
+              if (file.needsStat) {
+                try {
+                  const stat = await fsp.stat(file.path);
+                  file.size = stat.size;
+                  file.modifiedAt = stat.mtime?.toISOString?.() || new Date().toISOString();
+                  file.createdAt = stat.birthtime?.toISOString?.() || new Date().toISOString();
+                  file.id = `${file.path}:${stat.mtimeMs}`;
+                  delete file.needsStat;
+                } catch (e) {
+                  // 忽略 stat 錯誤
+                }
+              }
             }
-          });
+          }, 100);
         }
-
         return {
           success: true,
-          files: initialFiles,
+          files: allFiles,
           directory: dir,
-          hasMore,
-          totalCount: filteredEntries.length
+          hasMore: false,
+          totalCount: allFiles.length
         };
       } catch (error) {
-        console.error("Error listing screenshots:", error);
+        console.error("[list-screenshots] 錯誤:", error);
+        console.error("[list-screenshots] 錯誤堆疊:", error.stack);
         return { success: false, error: error.message, files: [] };
       }
     });
 
     // 新增獨立的縮圖生成 API（按需調用）
+    // 縮圖快取（記憶體 LRU）
+    const crypto = require("crypto");
+    const THUMB_CACHE_MAX = 300;
+    const thumbMemCache = new Map(); // key -> dataURL
+    function thumbKey(filePath, mtimeMs, width) {
+      return `${filePath}|${mtimeMs}|w${width}`;
+    }
+    function thumbCacheGet(key) {
+      if (!thumbMemCache.has(key)) return null;
+      const val = thumbMemCache.get(key);
+      // LRU：移到尾端
+      thumbMemCache.delete(key);
+      thumbMemCache.set(key, val);
+      return val;
+    }
+    function thumbCacheSet(key, dataUrl) {
+      thumbMemCache.set(key, dataUrl);
+      if (thumbMemCache.size > THUMB_CACHE_MAX) {
+        const oldest = thumbMemCache.keys().next().value;
+        thumbMemCache.delete(oldest);
+      }
+    }
+
     ipcMain.handle("get-thumbnail", async (event, filePath, width = 300) => {
       try {
-        const thumbImage = electron.nativeImage
-          .createFromPath(filePath)
-          .resize({ width });
-        return thumbImage.isEmpty() ? null : thumbImage.toDataURL();
+        console.log("[get-thumbnail] Request for:", filePath, "width:", width);
+
+        if (!filePath || typeof filePath !== "string") {
+          console.warn("[get-thumbnail] Invalid filePath:", filePath);
+          return null;
+        }
+
+        // 檢查檔案是否存在
+        let stat;
+        try {
+          stat = await fs.stat(filePath);
+          console.log("[get-thumbnail] File exists, size:", stat.size);
+        } catch (statError) {
+          console.warn("[get-thumbnail] File not found:", filePath, statError.message);
+          return null;
+        }
+
+        const key = thumbKey(filePath, stat.mtimeMs, width);
+
+        // 記憶體快取命中
+        const cached = thumbCacheGet(key);
+        if (cached) {
+          console.log("[get-thumbnail] Cache hit for:", filePath);
+          return cached;
+        }
+
+        // 產生縮圖
+        console.log("[get-thumbnail] Generating thumbnail for:", filePath);
+        const ni = electron.nativeImage.createFromPath(filePath);
+        if (ni.isEmpty()) {
+          console.warn("[get-thumbnail] nativeImage is empty for:", filePath);
+          return null;
+        }
+
+        const resized = ni.resize({ width, quality: 'good' });
+        if (resized.isEmpty()) {
+          console.warn("[get-thumbnail] Resized image is empty for:", filePath);
+          return null;
+        }
+
+        const dataUrl = resized.toDataURL();
+        console.log("[get-thumbnail] Generated dataUrl length:", dataUrl.length);
+
+        // 存入快取
+        thumbCacheSet(key, dataUrl);
+        return dataUrl;
       } catch (error) {
-        console.error("Error generating thumbnail:", error);
+        console.error("[get-thumbnail] Error generating thumbnail:", error, "for file:", filePath);
         return null;
       }
     });
@@ -788,8 +853,10 @@ class DukshotApp {
     try {
       console.log("Saving screenshot directly...");
 
-      const targetDir = this.getDefaultSaveDir();
-      await fs.mkdir(targetDir, { recursive: true });
+      const targetDir = await this.getValidSaveDir();
+      await fs.mkdir(targetDir, { recursive: true }).catch(err => {
+        console.warn(`[saveScreenshotDirect] 建立目錄失敗，嘗試繼續: ${err.message}`);
+      });
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `Dukshot-${timestamp}.${format}`;
       const filePath = path.join(targetDir, filename);
@@ -815,7 +882,71 @@ class DukshotApp {
     }
   }
 
-  // 取得預設截圖儲存資料夾
+  // 新增：取得有效的儲存目錄（非同步版本）
+  async getValidSaveDir() {
+    const configured = store.get("saveDirectory");
+    if (configured && typeof configured === "string" && configured.trim().length > 0) {
+      try {
+        await fs.access(configured);
+        return configured;
+      } catch (e) {
+        console.warn(`[getValidSaveDir] Configured path not accessible: ${configured}`);
+      }
+    }
+    
+    // 預設使用桌面
+    const homedir = os.homedir();
+    let desktop = path.join(homedir, "Desktop");
+    
+    // Windows 系統特殊處理
+    if (process.platform === 'win32') {
+      // 嘗試使用 shell API 取得實際桌面路徑
+      try {
+        const { exec } = require('child_process');
+        const util = require('util');
+        const execPromise = util.promisify(exec);
+        
+        // 使用 PowerShell 取得桌面路徑
+        const { stdout } = await execPromise('powershell -command "[Environment]::GetFolderPath(\'Desktop\')"');
+        if (stdout && stdout.trim()) {
+          desktop = stdout.trim();
+        }
+      } catch (err) {
+        // 如果 PowerShell 失敗，使用預設路徑
+        console.log('[getValidSaveDir] PowerShell desktop path failed, using default');
+      }
+    }
+    
+    try {
+      await fs.access(desktop);
+      return desktop;
+    } catch (e) {
+      console.log(`[getValidSaveDir] Default desktop not accessible: ${desktop}`);
+      
+      // 嘗試其他常見路徑
+      const alternativePaths = [
+        path.join(homedir, "桌面"), // 中文Windows系統
+        path.join(homedir, "OneDrive", "Desktop"), // OneDrive同步的桌面
+        path.join(homedir, "OneDrive", "桌面"),
+        path.join(homedir, "Documents"), // 最後備用：文件資料夾
+      ];
+      
+      for (const altPath of alternativePaths) {
+        try {
+          await fs.access(altPath);
+          console.log(`[getValidSaveDir] Using alternative path: ${altPath}`);
+          return altPath;
+        } catch (err) {
+          continue;
+        }
+      }
+    }
+    
+    // 如果所有路徑都無法存取，返回預設桌面路徑（讓系統嘗試建立）
+    return desktop;
+  }
+
+  // 取得預設截圖儲存資料夾（同步版本，向下相容）
   getDefaultSaveDir() {
     const configured = store.get("saveDirectory");
     if (

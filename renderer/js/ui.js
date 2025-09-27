@@ -203,8 +203,25 @@ class UIManager {
     });
   }
 
+  // 更新單個縮圖（避免整個網格重新渲染）
+  updateSingleThumbnail(file) {
+    if (!file || !file.id) return;
+    
+    const item = document.querySelector(`[data-image-id="${file.id}"]`);
+    if (item && file.thumbnail) {
+      const img = item.querySelector("img");
+      const thumbnail = item.querySelector(".file-thumbnail");
+      if (img && thumbnail) {
+        img.src = file.thumbnail;
+        img.style.display = "block";
+        thumbnail.classList.remove("loading");
+      }
+    }
+  }
+
   // 更新圖片網格
   updateImageGrid(files) {
+
     const grid = document.getElementById("image-grid");
     const emptyState = document.getElementById("empty-state");
 
@@ -218,6 +235,7 @@ class UIManager {
     emptyState.style.display = "none";
     grid.innerHTML = "";
 
+    // 簡單高效：直接插入所有檔案（對現代機器來說，幾百張檔案完全可接受）
     files.forEach((file) => {
       const card = this.createImageCard(file);
       grid.appendChild(card);
@@ -225,6 +243,12 @@ class UIManager {
 
     // 初始化圖示
     lucide.createIcons();
+
+    // 同步狀態列
+    try {
+      this.updateStatusBar(files.length, files);
+      setTimeout(() => this.updateStatusBar(files.length, files), 150);
+    } catch {}
   }
 
   createImageCard(file) {
@@ -234,12 +258,36 @@ class UIManager {
 
     item.innerHTML = `
       <div class="file-thumbnail${file.thumbnail ? '' : ' loading'}">
-        <img src="${file.thumbnail || file.path}" alt="${
-      file.name
-    }" loading="lazy" ${file.thumbnail ? '' : 'style="display: none;"'}>
+        <img src="" alt="${file.name}" loading="lazy" ${file.thumbnail ? '' : 'style="display: none;"'}>
       </div>
       <div class="file-name" title="${file.name}">${this.formatFileName(file.name)}</div>
     `;
+    // 正規化圖片來源，確保本機路徑轉為 file:/// 並編碼 - 修正：正確處理中文路徑
+    try {
+      const raw = file.thumbnail || file.path || "";
+      let finalSrc = "";
+      
+      if (typeof raw === "string" && raw.length > 0) {
+        if (raw.startsWith("data:") || raw.startsWith("file://")) {
+          // 已經是 data URL 或 file URL，直接使用
+          finalSrc = raw;
+        } else {
+          // 需要轉換為 file:/// URL
+          const normalized = raw.replace(/\\/g, "/");
+          // 正確編碼每個路徑段
+          const segments = normalized.split("/");
+          const encoded = segments.map(seg => encodeURIComponent(seg)).join("/");
+          finalSrc = "file:///" + encoded;
+        }
+      }
+      
+      const imgEl = item.querySelector("img");
+      if (imgEl && finalSrc) {
+        imgEl.src = finalSrc;
+      }
+    } catch (err) {
+      console.warn("[UI] Failed to set image src:", err, "for file:", file.name);
+    }
 
     // 設置事件監聽器
     this.setupFileItemEvents(item, file);

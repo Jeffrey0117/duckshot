@@ -53,52 +53,110 @@ class FileManager {
     }
   }
 
-  // 新增：延遲載入縮圖
-  async loadThumbnailsLazy() {
+  // 新增：延遲載入縮圖（限制並行度 + 使用 fsPath，降低阻塞）
+  async loadThumbnailsLazy(maxConcurrency = 3, thumbWidth = 150) {
     if (this.isProcessingThumbnails) return;
     this.isProcessingThumbnails = true;
 
-    while (this.thumbnailQueue.length > 0) {
-      const fileId = this.thumbnailQueue.shift();
-      const file = this.files.get(fileId);
-      
-      if (file && file.needsThumbnail && window.electronAPI?.files?.getThumbnail) {
-        try {
-          const thumbnail = await window.electronAPI.files.getThumbnail(file.path);
-          if (thumbnail) {
-            file.thumbnail = thumbnail;
-            file.needsThumbnail = false;
-            // 通知 UI 更新單個檔案
-            this.eventEmitter.emit("thumbnailLoaded", file);
+    const worker = async () => {
+      while (true) {
+        const fileId = this.thumbnailQueue.shift();
+        if (!fileId) break;
+
+        const file = this.files.get(fileId);
+        if (!file) continue;
+
+        if (window.electronAPI?.files?.getThumbnail) {
+          try {
+            // 優先使用真實檔案系統路徑（fsPath），避免傳入 file:/// 導致 nativeImage 失敗
+            let fsPath = file.fsPath;
+            if (!fsPath && typeof file.path === "string") {
+              // 從 file:/// 轉回系統路徑 - 修正：正確解碼中文路徑
+              const withoutScheme = file.path.replace(/^file:\/\/\//, "");
+              // 先解碼URI編碼的路徑
+              const decoded = decodeURIComponent(withoutScheme);
+              // Windows系統需要將正斜線轉回反斜線
+              fsPath = decoded.replace(/\//g, "\\");
+            }
+            if (fsPath) {
+              console.log("[Thumbnail] Loading for:", fsPath);
+              const thumbnail = await window.electronAPI.files.getThumbnail(fsPath, thumbWidth);
+              if (thumbnail) {
+                console.log("[Thumbnail] Generated for:", fsPath);
+                file.thumbnail = thumbnail;
+                file.needsThumbnail = false;
+                // 通知 UI 更新單個檔案
+                this.eventEmitter.emit("thumbnailLoaded", file);
+              } else {
+                console.warn("[Thumbnail] No thumbnail returned for:", fsPath);
+              }
+            } else {
+              console.warn("[Thumbnail] No fsPath available for:", file.name, file.path);
+            }
+          } catch (error) {
+            console.warn("[Thumbnail] Failed to load thumbnail:", error, "for file:", file.name);
           }
-        } catch (error) {
-          console.warn("Failed to load thumbnail:", error);
+
+          // 避免阻塞 UI，適度延遲（減少延遲以加快載入）
+          await new Promise(resolve => setTimeout(resolve, 20));
         }
-        
-        // 避免阻塞 UI
-        await new Promise(resolve => setTimeout(resolve, 10));
       }
-    }
+    };
+
+    // 啟動多個 worker 并行處理
+    const n = Math.max(1, Math.min(maxConcurrency, 3));
+    const tasks = Array.from({ length: n }, () => worker());
+    await Promise.all(tasks);
 
     this.isProcessingThumbnails = false;
   }
 
-  async loadFolder(folderName) {
+  async loadFolder(folderName, skipLoad = false) {
     if (this.isLoading) return;
 
     this.isLoading = true;
     this.currentFolder = folderName;
 
     try {
-      // 實際實作中會從檔案系統讀取
-      const files = await this.getFilesFromFolder(folderName);
+      // 如果已經有檔案且要跳過載入，只觸發事件更新 UI
+      if (skipLoad && this.files.size > 0) {
+        console.log("[FileManager] Skipping load, using existing files:", this.files.size);
+        this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
+      } else {
+        // 從檔案系統讀取
+        const files = await this.getFilesFromFolder(folderName);
 
-      this.files.clear();
-      files.forEach((file) => {
-        this.files.set(file.id, file);
-      });
+        this.files.clear();
+        files.forEach((file) => {
+          this.files.set(file.id, file);
+        });
 
-      this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
+        // 診斷：記錄載入的檔案數量與目前分頁
+        console.log("[FileManager] files loaded:", {
+          folder: this.currentFolder,
+          count: this.files.size
+        });
+
+        // 觸發事件給外部
+        this.eventEmitter.emit("filesLoaded", this.getFilteredFiles());
+      }
+
+      // 啟動縮圖延遲載入：把沒有縮圖的檔案加入隊列
+      try {
+        this.thumbnailQueue = [];
+        for (const f of this.getFilteredFiles()) {
+          if (!f.thumbnail && f.path) {
+            f.needsThumbnail = true;
+            this.thumbnailQueue.push(f.id);
+          }
+        }
+        // 增加並行度以加快載入
+        if (this.thumbnailQueue.length > 0) {
+          this.loadThumbnailsLazy(5, 150);
+        }
+      } catch (e) {
+        console.warn("thumbnail preload queue failed:", e);
+      }
     } catch (error) {
       console.error("Failed to load folder:", error);
       this.eventEmitter.emit("loadError", error);
@@ -121,23 +179,55 @@ class FileManager {
           const folderLabel =
             dirName.toLowerCase() === "desktop" ? "桌面" : (dirName || folderName);
 
-          // 極速載入：立即返回初始批次
-          console.log(`快速載入前 ${res.files.length} 個檔案，總共 ${res.totalCount || res.files.length} 個`);
+          // 極速載入：立即返回初始批次（防止重複通知）
+          if (!window.DukshotApp?.lastFilesLoadTime ||
+              Date.now() - window.DukshotApp.lastFilesLoadTime > 5000) {
+            console.log(`快速載入前 ${res.files.length} 個檔案，總共 ${res.totalCount || res.files.length} 個`);
+          }
           
           // 對齊系統內部檔案結構，讓 UI 可以直接顯示
+          // 診斷：列出主程序回傳的檔案數與目錄
+          try {
+            console.log("[FileManager] listScreenshots result:", {
+              success: res?.success,
+              received: Array.isArray(res.files) ? res.files.length : 0,
+              directory: res.directory,
+              hasMore: res.hasMore,
+              totalCount: res.totalCount
+            });
+          } catch {}
+
           const realFiles = res.files.map((f) => {
-            // 若無縮圖，將本機路徑轉成 file:/// URL 以供 <img> 使用
-            const fileUrl =
-              typeof f.path === "string"
-                ? (f.path.startsWith("file://")
-                    ? f.path
-                    : "file:///" + f.path.replace(/\\/g, "/"))
-                : "";
+            // 真實檔案系統路徑（供縮圖 IPC 使用）
+            const fsPath = typeof f.path === "string" ? f.path : "";
+            // UI 顯示使用 file:/// URL - 修正：正確處理中文路徑
+            let fileUrl = "";
+            if (typeof fsPath === "string" && fsPath.length > 0) {
+              if (fsPath.startsWith("file://")) {
+                fileUrl = fsPath;
+              } else {
+                // 將反斜線轉為正斜線
+                const normalized = fsPath.replace(/\\/g, "/");
+                // 只編碼需要編碼的字符，保留路徑分隔符
+                const segments = normalized.split("/");
+                const encoded = segments.map(segment => {
+                  // 如果是磁碟機代號（如 C:），不編碼
+                  if (segment.match(/^[A-Za-z]:$/)) {
+                    return segment;
+                  }
+                  // 對每個路徑段進行 URI 編碼，但保留已編碼的字符
+                  return encodeURIComponent(decodeURIComponent(segment));
+                }).join("/");
+                fileUrl = "file:///" + encoded;
+              }
+            }
 
             return {
               id: f.id || Utils.generateId(),
               name: f.name,
-              path: fileUrl || f.path || "",
+              // 保存兩種路徑：UI 用 path（file:///），IPC 用 fsPath（實體路徑）
+              path: fileUrl || fsPath || "",
+              fsPath: fsPath || "",
               thumbnail: f.thumbnail || fileUrl,
               size: f.size || 0,
               createdAt: f.createdAt || new Date().toISOString(),
@@ -160,25 +250,30 @@ class FileManager {
                 
                 // 處理延遲載入的檔案
                 payload.files.forEach(f => {
-                  const fileUrl = typeof f.path === "string"
-                    ? (f.path.startsWith("file://") ? f.path : "file:///" + f.path.replace(/\\/g, "/"))
+                  const fsPath = typeof f.path === "string" ? f.path : "";
+                  const fileUrl = typeof fsPath === "string"
+                    ? (fsPath.startsWith("file://") ? fsPath : encodeURI("file:///" + fsPath.replace(/\\/g, "/")))
                     : "";
                     
                   const file = {
                     id: f.id || Utils.generateId(),
                     name: f.name,
-                    path: fileUrl || f.path || "",
-                    thumbnail: f.thumbnail || fileUrl,
+                    path: fileUrl || fsPath || "",
+                    fsPath: fsPath || "",
+                    thumbnail: f.thumbnail || null,
                     size: f.size || 0,
                     createdAt: f.createdAt || new Date().toISOString(),
                     modifiedAt: f.modifiedAt || new Date().toISOString(),
                     type: f.type || "image/png",
                     folder: folderLabel,
                     dimensions: f.dimensions || { width: 0, height: 0 },
+                    needsThumbnail: true
                   };
                   
                   // 加入到檔案列表
                   this.files.set(file.id, file);
+                  // 排入縮圖隊列
+                  this.thumbnailQueue.push(file.id);
                 });
                 
                 // 通知 UI 更新
@@ -194,38 +289,9 @@ class FileManager {
       console.warn("listScreenshots failed, fallback to mock:", e);
     }
 
-    // Fallback：模擬檔案資料 (保留原本的行為)
-    const mockFiles = [];
-
-    // 根據資料夾名稱生成不同的模擬檔案
-    const fileCount = Math.floor(Math.random() * 10) + 5;
-
-    for (let i = 0; i < fileCount; i++) {
-      const now = new Date();
-      const createdAt = new Date(
-        now.getTime() - Math.random() * 30 * 24 * 60 * 60 * 1000
-      );
-
-      mockFiles.push({
-        id: Utils.generateId(),
-        name: `${folderName}_截圖_${i + 1}.png`,
-        path: `./mock/images/${folderName}_${i + 1}.png`,
-        thumbnail: `data:image/svg+xml,${encodeURIComponent(
-          this.generatePlaceholderSVG(200, 150, `${folderName} ${i + 1}`)
-        )}`,
-        size: Math.floor(Math.random() * 1000000) + 100000, // 100KB - 1MB
-        createdAt: createdAt.toISOString(),
-        modifiedAt: createdAt.toISOString(),
-        type: "image/png",
-        folder: folderName,
-        dimensions: {
-          width: 1920,
-          height: 1080,
-        },
-      });
-    }
-
-    return mockFiles;
+    // Fallback：停用模擬資料，但避免清空已載入內容 → 回傳現有清單
+    console.warn("[FileManager] listScreenshots 不可用或失敗，保留現有清單（停用 mock）");
+    return Array.from(this.files.values());
   }
 
   generatePlaceholderSVG(width, height, text) {
@@ -539,13 +605,15 @@ class FileManager {
           typeof resolvedPath === "string" && resolvedPath.startsWith("file://");
         displaySrc = isFileUrl
           ? resolvedPath
-          : "file:///" + String(resolvedPath).replace(/\\/g, "/");
+          : encodeURI("file:///" + String(resolvedPath).replace(/\\/g, "/"));
       }
 
       const file = {
         id: Utils.generateId(),
         name: filename,
-        path: resolvedPath,
+        // UI 用 file:///，縮圖 IPC 用 fsPath
+        path: displaySrc || encodeURI("file:///" + String(resolvedPath).replace(/\\/g, "/")),
+        fsPath: String(filePath || resolvedPath),
         thumbnail: displaySrc, // 讓 <img> 可以立即顯示（DataURL 或 file:///）
         size: imageData ? this.estimateImageSize(imageData) : 0,
         createdAt: new Date().toISOString(),
