@@ -759,16 +759,11 @@ class DukshotApp {
         throw new Error("無法找到螢幕源");
       }
 
-      // 使用第一個螢幕源並直接保存
+      // 使用第一個螢幕源
       const primaryScreen = sources[0];
-
-      // 獲取更高解析度的縮圖作為截圖
-      const highResSources = await desktopCapturer.getSources({
-        types: ["screen"],
-        thumbnailSize: getOptimalThumbnailSize(),
-      });
-
-      const imageData = highResSources[0].thumbnail.toDataURL();
+      
+      // 直接使用高解析度縮圖
+      const imageData = primaryScreen.thumbnail.toDataURL("image/png", 1.0);
 
       // 直接保存截圖
       const saveResult = await this.saveScreenshotDirect(imageData, "png");
