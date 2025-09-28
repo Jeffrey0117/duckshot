@@ -772,6 +772,7 @@
           // 工具列按鈕
           document.getElementById('copyBtn').addEventListener('click', () => this.copyToClipboard());
           document.getElementById('saveBtn').addEventListener('click', () => this.saveScreenshot());
+          document.getElementById('uploadBtn').addEventListener('click', () => this.uploadScreenshot());
           document.getElementById('cancelBtn').addEventListener('click', () => window.close());
         }
 
@@ -891,6 +892,7 @@
             this.selection.y = Math.max(0, Math.min(window.innerHeight - this.selection.height, e.clientY - this.dragStartY));
             this.updateSelectionBox();
             this.updateDimensionDisplay();
+            this.updateToolbarPosition(); // 新增：更新工具列位置
           } else if (this.isResizing && this.selection && this.resizeStartSelection) {
             const dx = e.clientX - this.resizeStartX;
             const dy = e.clientY - this.resizeStartY;
@@ -899,6 +901,7 @@
             this.adjustSelection(this.resizeHandle, dx, dy);
             this.updateSelectionBox();
             this.updateDimensionDisplay();
+            this.updateToolbarPosition(); // 新增：更新工具列位置
           } else if (this.isSelecting) {
             const width = Math.abs(e.clientX - this.dragStartX);
             const height = Math.abs(e.clientY - this.dragStartY);
@@ -1030,17 +1033,35 @@
           const { x, y, width, height } = this.selection;
           
           // 計算工具列位置
-          let left = x + width - 200;
+          let left = x + width - 280; // 調整為 4 個按鈕的寬度
           let top = y + height + 10;
           
           // 邊界檢查
           if (left < 10) left = 10;
-          if (left + 200 > window.innerWidth) left = window.innerWidth - 210;
+          if (left + 280 > window.innerWidth) left = window.innerWidth - 290;
           if (top + 80 > window.innerHeight) top = y - 90;
           
           this.toolbar.style.left = left + 'px';
           this.toolbar.style.top = top + 'px';
           this.toolbar.style.display = 'flex';
+        }
+
+        updateToolbarPosition() {
+          if (!this.selection || this.toolbar.style.display === 'none') return;
+          
+          const { x, y, width, height } = this.selection;
+          
+          // 計算工具列位置
+          let left = x + width - 280; // 調整為 4 個按鈕的寬度
+          let top = y + height + 10;
+          
+          // 邊界檢查
+          if (left < 10) left = 10;
+          if (left + 280 > window.innerWidth) left = window.innerWidth - 290;
+          if (top + 80 > window.innerHeight) top = y - 90;
+          
+          this.toolbar.style.left = left + 'px';
+          this.toolbar.style.top = top + 'px';
         }
 
         async copyToClipboard() {
@@ -1263,7 +1284,7 @@
 
       // 初始化
       document.addEventListener('DOMContentLoaded', () => {
-        new HighDPICaptureSystem();
+        window.captureSystem = new HighDPICaptureSystem();
       });
     </script>
   </body>
