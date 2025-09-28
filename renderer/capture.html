@@ -611,9 +611,14 @@
           console.log('Canvas 實際尺寸:', this.canvas.width, 'x', this.canvas.height);
           console.log('Canvas CSS 尺寸:', this.canvas.style.width, 'x', this.canvas.style.height);
           
-          // 設定高品質渲染
+          // 設定高品質渲染 - 優化畫質設定
           this.ctx.imageSmoothingEnabled = false;
           this.ctx.imageSmoothingQuality = 'high';
+          
+          // 額外的畫質優化設定
+          this.ctx.mozImageSmoothingEnabled = false;
+          this.ctx.webkitImageSmoothingEnabled = false;
+          this.ctx.msImageSmoothingEnabled = false;
         }
 
         listenForScreenData() {
@@ -639,8 +644,11 @@
             // 重置變換矩陣
             this.ctx.setTransform(1, 0, 0, 1, 0, 0);
             
-            // 關閉圖片平滑以保持銳利度
+            // 關閉圖片平滑以保持銳利度 - 加強畫質
             this.ctx.imageSmoothingEnabled = false;
+            this.ctx.mozImageSmoothingEnabled = false;
+            this.ctx.webkitImageSmoothingEnabled = false;
+            this.ctx.msImageSmoothingEnabled = false;
             
             // 判斷圖片和 canvas 的比例
             const scaleX = this.canvas.width / img.naturalWidth;
@@ -888,20 +896,24 @@
             // 拖曳選取區域時保持 move 游標
             document.body.style.cursor = 'move';
             
+            // 移動時隱藏工具列避免擋住視線
+            this.toolbar.style.display = 'none';
+            
             this.selection.x = Math.max(0, Math.min(window.innerWidth - this.selection.width, e.clientX - this.dragStartX));
             this.selection.y = Math.max(0, Math.min(window.innerHeight - this.selection.height, e.clientY - this.dragStartY));
             this.updateSelectionBox();
             this.updateDimensionDisplay();
-            this.updateToolbarPosition(); // 新增：更新工具列位置
           } else if (this.isResizing && this.selection && this.resizeStartSelection) {
             const dx = e.clientX - this.resizeStartX;
             const dy = e.clientY - this.resizeStartY;
+            
+            // 調整大小時隱藏工具列
+            this.toolbar.style.display = 'none';
             
             // 根據控制點調整選區
             this.adjustSelection(this.resizeHandle, dx, dy);
             this.updateSelectionBox();
             this.updateDimensionDisplay();
-            this.updateToolbarPosition(); // 新增：更新工具列位置
           } else if (this.isSelecting) {
             const width = Math.abs(e.clientX - this.dragStartX);
             const height = Math.abs(e.clientY - this.dragStartY);
@@ -996,6 +1008,11 @@
             }
           }
           
+          // 拖曳或調整大小結束後，重新顯示工具列
+          if ((this.isDraggingSelection || this.isResizing) && this.selection) {
+            this.showToolbar();
+          }
+          
           // 重置游標
           if (this.isDraggingSelection || this.isResizing) {
             document.body.style.cursor = '';
@@ -1075,8 +1092,16 @@
             tempCanvas.width = this.selection.width * this.dpr;
             tempCanvas.height = this.selection.height * this.dpr;
             
-            // 關閉圖片平滑
+            // 關閉圖片平滑 - 保持最高品質
             tempCtx.imageSmoothingEnabled = false;
+            tempCtx.mozImageSmoothingEnabled = false;
+            tempCtx.webkitImageSmoothingEnabled = false;
+            tempCtx.msImageSmoothingEnabled = false;
+            tempCtx.imageSmoothingQuality = 'high';
+            tempCtx.mozImageSmoothingEnabled = false;
+            tempCtx.webkitImageSmoothingEnabled = false;
+            tempCtx.msImageSmoothingEnabled = false;
+            tempCtx.imageSmoothingQuality = 'high';
             
             // 從高解析度 canvas 擷取
             tempCtx.drawImage(
@@ -1115,8 +1140,12 @@
             
             console.log('儲存截圖 - Canvas 尺寸:', tempCanvas.width, 'x', tempCanvas.height);
             
-            // 關閉圖片平滑以保持銳利度
+            // 關閉圖片平滑以保持銳利度 - 最高品質設定
             tempCtx.imageSmoothingEnabled = false;
+            tempCtx.mozImageSmoothingEnabled = false;
+            tempCtx.webkitImageSmoothingEnabled = false;
+            tempCtx.msImageSmoothingEnabled = false;
+            tempCtx.imageSmoothingQuality = 'high';
             
             // 從高解析度 canvas 擷取正確的區域
             tempCtx.drawImage(
