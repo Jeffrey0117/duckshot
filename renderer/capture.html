@@ -1255,17 +1255,7 @@
             case 'success':
               content.innerHTML = `
                 <div class="upload-title upload-success">✓ 上傳成功！</div>
-                ${data.url_preview ? `
-                <div class="upload-preview">
-                  <img src="${data.url_preview}" alt="預覽圖" />
-                </div>
-                ` : ''}
                 <div class="upload-links">
-                  <div class="link-row">
-                    <span class="link-label">預覽連結：</span>
-                    <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_preview}')">${data.url_preview}</div>
-                    <button class="copy-btn-small" onclick="navigator.clipboard.writeText('${data.url_preview}')">複製</button>
-                  </div>
                   <div class="link-row">
                     <span class="link-label">直連連結：</span>
                     <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_direct}')">${data.url_direct}</div>
