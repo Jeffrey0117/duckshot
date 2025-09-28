@@ -973,6 +973,11 @@ class DukshotApp {
       transparent: true,
       alwaysOnTop: true,
       show: false, // 先不顯示，等載入完成後再顯示
+      resizable: false, // 防止視窗被調整大小
+      movable: false, // 防止視窗被移動
+      minimizable: false, // 防止最小化
+      maximizable: false, // 防止最大化
+      closable: true, // 允許關閉
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
