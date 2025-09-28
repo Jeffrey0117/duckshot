@@ -273,6 +273,186 @@
         pointer-events: none;
         opacity: 0.8;
       }
+
+      /* 上傳彈窗 */
+      .upload-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .upload-modal.show {
+        display: flex;
+        opacity: 1;
+      }
+
+      .upload-content {
+        background: white;
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 480px;
+        width: 90%;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        transform: scale(0.9);
+        transition: transform 0.3s ease;
+      }
+
+      .upload-modal.show .upload-content {
+        transform: scale(1);
+      }
+
+      .upload-title {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        color: #333;
+      }
+
+      /* 載入動畫 */
+      .upload-loading {
+        text-align: center;
+        padding: 20px 0;
+      }
+
+      .spinner {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #0080ff;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 16px;
+      }
+
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      /* 成功狀態 */
+      .upload-success {
+        color: #28a745;
+      }
+
+      .upload-preview {
+        margin: 16px 0;
+        text-align: center;
+      }
+
+      .upload-preview img {
+        max-width: 100%;
+        max-height: 200px;
+        border-radius: 8px;
+        border: 1px solid #e0e0e0;
+      }
+
+      .upload-links {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+
+      .link-row {
+        margin: 8px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .link-label {
+        font-weight: 600;
+        font-size: 13px;
+        color: #666;
+        min-width: 80px;
+      }
+
+      .link-value {
+        flex: 1;
+        font-size: 12px;
+        background: white;
+        padding: 6px 8px;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        word-break: break-all;
+        cursor: pointer;
+      }
+
+      .link-value:hover {
+        background: #f0f0f0;
+      }
+
+      .copy-btn-small {
+        padding: 4px 8px;
+        background: #0080ff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .copy-btn-small:hover {
+        background: #0066cc;
+      }
+
+      /* 錯誤狀態 */
+      .upload-error {
+        color: #dc3545;
+        text-align: center;
+        padding: 20px 0;
+      }
+
+      .error-message {
+        margin: 16px 0;
+        padding: 12px;
+        background: #fee;
+        border-radius: 8px;
+        color: #c00;
+      }
+
+      .modal-buttons {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 20px;
+      }
+
+      .modal-btn {
+        padding: 8px 20px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s;
+      }
+
+      .modal-btn-primary {
+        background: #0080ff;
+        color: white;
+      }
+
+      .modal-btn-primary:hover {
+        background: #0066cc;
+      }
+
+      .modal-btn-secondary {
+        background: #f0f0f0;
+        color: #333;
+      }
+
+      .modal-btn-secondary:hover {
+        background: #e0e0e0;
+      }
     </style>
   </head>
   <body>
@@ -325,6 +505,12 @@
         </svg>
         <div class="btn-text">儲存</div>
       </button>
+      <button class="capture-btn" id="uploadBtn" title="上傳圖片">
+        <svg viewBox="0 0 24 24" width="22" height="22">
+          <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" fill="currentColor"/>
+        </svg>
+        <div class="btn-text">上傳</div>
+      </button>
       <button class="capture-btn" id="cancelBtn" title="取消 (Esc)">
         <svg viewBox="0 0 24 24" width="22" height="22">
           <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" fill="currentColor"/>
@@ -344,6 +530,7 @@
           this.dimensionDisplay = document.getElementById('dimensionDisplay');
           this.toolbar = document.getElementById('captureToolbar');
           this.dpiInfo = document.getElementById('dpiInfo');
+          this.uploadModal = document.getElementById('uploadModal');
           
           // DPI 相關
           this.dpr = window.devicePixelRatio || 1;
@@ -363,6 +550,10 @@
           this.resizeStartX = 0;
           this.resizeStartY = 0;
           this.resizeStartSelection = null;
+          
+          // 上傳 API 設定
+          this.API_URL = "https://api.urusai.cc/v1/upload";
+          this.TOKEN = "5b857ee4fcaff92c51cd2ddfd1578b95670a5ddca0cd9831b5791640b42ad4215b857ee4fcaff92c51cd2ddfd1578b95670a5ddca0cd9831b5791640b42ad421";
           
           // 初始化
           this.init();
@@ -923,6 +1114,141 @@
           } catch (error) {
             console.error('儲存截圖失敗:', error);
           }
+        }
+
+        async uploadScreenshot() {
+          if (!this.selection) return;
+          
+          try {
+            // 顯示載入狀態
+            this.showUploadModal('loading');
+            
+            // 創建臨時 canvas 獲取選取區域
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            tempCanvas.width = this.selection.width * this.dpr;
+            tempCanvas.height = this.selection.height * this.dpr;
+            
+            tempCtx.imageSmoothingEnabled = false;
+            
+            tempCtx.drawImage(
+              this.canvas,
+              this.selection.x * this.dpr,
+              this.selection.y * this.dpr,
+              this.selection.width * this.dpr,
+              this.selection.height * this.dpr,
+              0,
+              0,
+              tempCanvas.width,
+              tempCanvas.height
+            );
+            
+            // 轉換為 Blob
+            const blob = await new Promise(resolve => {
+              tempCanvas.toBlob(resolve, 'image/png', 1.0);
+            });
+            
+            // 創建 FormData
+            const formData = new FormData();
+            formData.append('file', blob, 'screenshot.png');
+            formData.append('token', this.TOKEN);
+            formData.append('r18', '0');
+            
+            // 發送請求
+            const response = await fetch(this.API_URL, {
+              method: 'POST',
+              body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+              this.showUploadModal('success', data.data);
+              // 自動複製直連到剪貼簿
+              if (data.data.url_direct) {
+                navigator.clipboard.writeText(data.data.url_direct);
+              }
+            } else {
+              this.showUploadModal('error', data.message || '上傳失敗');
+            }
+          } catch (error) {
+            console.error('上傳截圖失敗:', error);
+            this.showUploadModal('error', error.message || '網路錯誤');
+          }
+        }
+
+        showUploadModal(state, data = null) {
+          const modal = this.uploadModal;
+          const content = document.getElementById('uploadModalContent');
+          
+          switch (state) {
+            case 'loading':
+              content.innerHTML = `
+                <div class="upload-title">正在上傳...</div>
+                <div class="upload-loading">
+                  <div class="spinner"></div>
+                  <div>請稍候，正在上傳截圖到伺服器</div>
+                </div>
+              `;
+              break;
+              
+            case 'success':
+              content.innerHTML = `
+                <div class="upload-title upload-success">✓ 上傳成功！</div>
+                ${data.url_preview ? `
+                <div class="upload-preview">
+                  <img src="${data.url_preview}" alt="預覽圖" />
+                </div>
+                ` : ''}
+                <div class="upload-links">
+                  <div class="link-row">
+                    <span class="link-label">預覽連結：</span>
+                    <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_preview}')">${data.url_preview}</div>
+                    <button class="copy-btn-small" onclick="navigator.clipboard.writeText('${data.url_preview}')">複製</button>
+                  </div>
+                  <div class="link-row">
+                    <span class="link-label">直連連結：</span>
+                    <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_direct}')">${data.url_direct}</div>
+                    <button class="copy-btn-small" onclick="navigator.clipboard.writeText('${data.url_direct}')">複製</button>
+                  </div>
+                  <div class="link-row">
+                    <span class="link-label">刪除連結：</span>
+                    <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_delete}')">${data.url_delete}</div>
+                    <button class="copy-btn-small" onclick="navigator.clipboard.writeText('${data.url_delete}')">複製</button>
+                  </div>
+                </div>
+                <div style="color: #28a745; text-align: center; margin-top: 12px;">
+                  💡 直連連結已自動複製到剪貼簿
+                </div>
+                <div class="modal-buttons">
+                  <button class="modal-btn modal-btn-primary" onclick="window.close()">完成</button>
+                  <button class="modal-btn modal-btn-secondary" onclick="document.getElementById('uploadModal').classList.remove('show')">繼續編輯</button>
+                </div>
+              `;
+              break;
+              
+            case 'error':
+              content.innerHTML = `
+                <div class="upload-title upload-error">✗ 上傳失敗</div>
+                <div class="error-message">${data || '發生未知錯誤'}</div>
+                <div class="modal-buttons">
+                  <button class="modal-btn modal-btn-primary" onclick="document.getElementById('uploadModal').classList.remove('show'); window.captureSystem.uploadScreenshot()">重試</button>
+                  <button class="modal-btn modal-btn-secondary" onclick="document.getElementById('uploadModal').classList.remove('show')">取消</button>
+                </div>
+              `;
+              break;
+          }
+          
+          // 顯示彈窗
+          modal.classList.add('show');
+          
+          // 綁定點擊背景關閉
+          modal.onclick = (e) => {
+            if (e.target === modal && state !== 'loading') {
+              modal.classList.remove('show');
+            }
+          };
         }
       }
 
