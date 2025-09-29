@@ -198,20 +198,29 @@ class ShortcutManager {
     this.shortcuts = new Map();
     this.enabled = true;
     this.defaultKeys = {
-      region: "CommandOrControl+PrintScreen",
+      region: "Ctrl+R",
       fullscreen: "PrintScreen",
-      window: "Alt+PrintScreen"
+      window: "Alt+W"
     };
   }
 
   register(shortcut, callback) {
-    // 檢查是否啟用
-    const isEnabled = store.get(`shortcuts.${shortcut}.enabled`) !== false;
-    if (!isEnabled || !this.enabled) return false;
+    // 獲取所有快捷鍵設定
+    const shortcuts = store.get("shortcuts") || {};
+    const shortcutConfig = shortcuts[shortcut];
+    const isEnabled = shortcutConfig ? shortcutConfig.enabled !== false : true;
+    
+    if (!isEnabled || !this.enabled) {
+      console.log(`快捷鍵 ${shortcut} 已停用`);
+      return false;
+    }
 
     // 獲取快捷鍵組合
-    const key = store.get(`shortcuts.${shortcut}.key`) || this.defaultKeys[shortcut];
-    if (!key) return false;
+    const key = shortcutConfig?.key || this.defaultKeys[shortcut];
+    if (!key) {
+      console.log(`快捷鍵 ${shortcut} 無有效按鍵組合`);
+      return false;
+    }
 
     try {
       // 先取消註冊（避免重複）
@@ -220,9 +229,13 @@ class ShortcutManager {
       }
       
       // 註冊新的快捷鍵
+      console.log(`嘗試註冊快捷鍵: ${shortcut} -> ${key}`);
       const success = globalShortcut.register(key, callback);
       if (success) {
         this.shortcuts.set(shortcut, { key, callback });
+        console.log(`成功註冊快捷鍵: ${shortcut} -> ${key}`);
+      } else {
+        console.error(`註冊快捷鍵失敗: ${shortcut} -> ${key}`);
       }
       return success;
     } catch (error) {
@@ -255,7 +268,10 @@ class ShortcutManager {
     } else {
       this.unregister(shortcut);
     }
-    store.set(`shortcuts.${shortcut}.enabled`, enabled);
+    const shortcuts = store.get("shortcuts") || {};
+    shortcuts[shortcut] = shortcuts[shortcut] || {};
+    shortcuts[shortcut].enabled = enabled;
+    store.set("shortcuts", shortcuts);
   }
 
   updateShortcutKey(shortcut, newKey) {
@@ -269,10 +285,18 @@ class ShortcutManager {
       return { error: "快捷鍵不存在" };
     }
 
+    // 保存原始 callback
+    const originalCallback = data.callback;
+    
     // 更新快捷鍵
     this.unregister(shortcut);
-    store.set(`shortcuts.${shortcut}.key`, newKey);
-    const success = this.register(shortcut, data.callback);
+    const shortcuts = store.get("shortcuts") || {};
+    shortcuts[shortcut] = shortcuts[shortcut] || {};
+    shortcuts[shortcut].key = newKey;
+    store.set("shortcuts", shortcuts);
+    
+    // 使用原始 callback 重新註冊
+    const success = this.register(shortcut, originalCallback);
     
     return success ? { success: true } : { error: "註冊失敗" };
   }
@@ -372,21 +396,31 @@ class DukshotApp {
 
   registerGlobalShortcuts() {
     // 檢查是否啟用全域快捷鍵
-    const globalEnabled = store.get("shortcuts.globalEnabled") !== false;
-    if (!globalEnabled) return;
+    const shortcuts = store.get("shortcuts") || {};
+    const globalEnabled = shortcuts.enabled !== false;
+    
+    console.log("註冊全域快捷鍵，設定值:", shortcuts);
+    
+    if (!globalEnabled) {
+      console.log("全域快捷鍵已停用");
+      return;
+    }
 
     // 區域截圖快捷鍵
     this.shortcutManager.register("region", () => {
+      console.log("快捷鍵觸發: 區域截圖");
       this.startRegionCapture();
     });
 
     // 全螢幕截圖快捷鍵
     this.shortcutManager.register("fullscreen", () => {
+      console.log("快捷鍵觸發: 全螢幕截圖");
       this.startFullScreenCapture();
     });
 
     // 當前視窗截圖快捷鍵
     this.shortcutManager.register("window", () => {
+      console.log("快捷鍵觸發: 視窗截圖");
       this.startActiveWindowCapture();
     });
   }
@@ -413,6 +447,44 @@ class DukshotApp {
         this.shortcutManager.unregisterAll();
       }
       globalShortcut.unregisterAll();
+    });
+
+    // 視窗獲得焦點時，若偵測到未註冊任何快捷鍵且已啟用，嘗試自我修復重註冊
+    electron.app.on("browser-window-focus", () => {
+      try {
+        const shortcuts = store.get("shortcuts") || {};
+        const globalEnabled = shortcuts.enabled !== false;
+        if (!globalEnabled) return;
+
+        if (this.shortcutManager && this.shortcutManager.shortcuts.size === 0) {
+          console.log("[focus] 偵測到已啟用但未註冊任何快捷鍵，嘗試重註冊…");
+          const callbacks = {
+            region: () => {
+              console.log("快捷鍵觸發: 區域截圖");
+              this.startRegionCapture();
+            },
+            fullscreen: () => {
+              console.log("快捷鍵觸發: 全螢幕截圖");
+              this.startFullScreenCapture();
+            },
+            window: () => {
+              console.log("快捷鍵觸發: 視窗截圖");
+              this.startActiveWindowCapture();
+            },
+          };
+          ["region","fullscreen","window"].forEach(type => {
+            const cfg = shortcuts[type];
+            if (!cfg || cfg.enabled === false) return;
+            const key = cfg.key || this.shortcutManager.defaultKeys[type];
+            if (!globalShortcut.isRegistered(key)) {
+              this.shortcutManager.register(type, callbacks[type]);
+            }
+          });
+          console.log("[focus] 重註冊完成，目前數量：", this.shortcutManager.shortcuts.size);
+        }
+      } catch (e) {
+        console.warn("[focus] 自我修復註冊失敗：", e.message);
+      }
     });
   }
 
@@ -617,9 +689,136 @@ class DukshotApp {
       return store.store;
     });
 
-    // 儲存設定
+    // 儲存設定（並確保快捷鍵立即套用）
     ipcMain.handle("save-settings", (event, settings) => {
       store.store = settings;
+
+      // 若帶有快捷鍵設定，立即套用（防止前端未呼叫 update-shortcuts 的情況）
+      if (settings && settings.shortcuts) {
+        try {
+          // 與 update-shortcuts 相同的正規化與註冊流程（內嵌精簡版）
+          const normalizeAccelerator = (acc) => {
+            if (!acc || typeof acc !== "string") return acc;
+            let a = acc
+              .replace(/\bControl\b/g, "Ctrl")
+              .replace(/\bOption\b/g, "Alt")
+              .replace(/\bReturn\b/g, "Enter");
+            const parts = a.split("+").filter(Boolean);
+            const mods = new Set([
+              "CommandOrControl",
+              "Command",
+              "Ctrl",
+              "Alt",
+              "Shift",
+              "Super",
+            ]);
+            const order = [
+              "CommandOrControl",
+              "Command",
+              "Ctrl",
+              "Alt",
+              "Shift",
+              "Super",
+            ];
+            const ordered = [];
+            for (const m of order) if (parts.includes(m)) ordered.push(m);
+            const keys = parts.filter((p) => !mods.has(p));
+            const key = keys.length ? keys[keys.length - 1] : "";
+            return [...ordered, key].filter(Boolean).join("+");
+          };
+
+          const isSupportedAccelerator = (acc) => {
+            if (!acc || typeof acc !== "string") return false;
+            const parts = acc.split("+").filter(Boolean);
+            const modifiers = new Set([
+              "CommandOrControl",
+              "Command",
+              "Ctrl",
+              "Alt",
+              "Shift",
+              "Super",
+            ]);
+            // 單鍵允許（F鍵/功能鍵等），或 2~3 鍵：1~2 個修飾鍵 + 1 個主鍵
+            if (parts.length === 1) return true;
+            if (parts.length >= 2 && parts.length <= 3) {
+              const mainKeys = parts.filter(p => !modifiers.has(p));
+              const modKeys = parts.filter(p => modifiers.has(p));
+              return mainKeys.length === 1 && modKeys.length >= 1 && modKeys.length <= 2;
+            }
+            return false;
+          };
+
+          // 兼容兩種結構：
+          // A) 新結構：{ region:{key,enabled}, fullscreen:{...}, window:{...}, enabled:true }
+          // B) 舊結構：{ regionCapture:"...", fullScreenCapture:"...", activeWindowCapture:"...", enableHotkeys:true }
+          let normalized = {};
+          const s = settings.shortcuts || {};
+          if (s.region || s.fullscreen || s.window) {
+            // A 格式
+            normalized = JSON.parse(JSON.stringify(s));
+            ["region", "fullscreen", "window"].forEach((t) => {
+              if (normalized[t] && typeof normalized[t].key === "string") {
+                normalized[t].key = normalizeAccelerator(normalized[t].key);
+              }
+              if (normalized[t] && typeof normalized[t].enabled === "undefined") {
+                normalized[t].enabled = true;
+              }
+            });
+            if (typeof normalized.enabled === "undefined") normalized.enabled = true;
+          } else {
+            // B 格式 → 轉換成 A 格式
+            const mapBtoA = {
+              region: s.regionCapture,
+              fullscreen: s.fullScreenCapture,
+              window: s.activeWindowCapture,
+            };
+            normalized.enabled = s.enableHotkeys !== false;
+            ["region", "fullscreen", "window"].forEach((t) => {
+              const keyStr = mapBtoA[t];
+              if (typeof keyStr === "string" && keyStr.trim().length > 0) {
+                const key = normalizeAccelerator(keyStr.trim());
+                normalized[t] = { key, enabled: true };
+              }
+            });
+          }
+
+          // 先取消所有現有的快捷鍵
+          this.shortcutManager.unregisterAll();
+
+          // 儲存快捷鍵設定
+          store.set("shortcuts", normalized);
+
+          // 重新註冊
+          const callbacks = {
+            region: () => {
+              console.log("快捷鍵觸發: 區域截圖");
+              this.startRegionCapture();
+            },
+            fullscreen: () => {
+              console.log("快捷鍵觸發: 全螢幕截圖");
+              this.startFullScreenCapture();
+            },
+            window: () => {
+              console.log("快捷鍵觸發: 視窗截圖");
+              this.startActiveWindowCapture();
+            },
+          };
+
+          const globalEnabled = normalized.enabled !== false;
+          if (globalEnabled) {
+            ["region", "fullscreen", "window"].forEach((type) => {
+              const cfg = normalized[type];
+              if (!cfg || cfg.enabled === false) return;
+              const key = cfg.key || this.shortcutManager.defaultKeys[type];
+              if (!isSupportedAccelerator(key)) return;
+              this.shortcutManager.register(type, callbacks[type]);
+            });
+          }
+        } catch (e) {
+          console.warn("[save-settings] Apply shortcuts immediately failed:", e.message);
+        }
+      }
+
       return { success: true };
     });
 
@@ -629,47 +828,118 @@ class DukshotApp {
       return { success: true };
     });
     
-    // 更新快捷鍵設定
+    // 更新快捷鍵設定（回傳逐項結果，便於前端提示）
     ipcMain.handle("update-shortcuts", (event, shortcuts) => {
       console.log("更新快捷鍵設定:", shortcuts);
-      
+
+      // 內部正規化：確保符合 Electron Accelerator
+      const normalizeAccelerator = (acc) => {
+        if (!acc || typeof acc !== 'string') return acc;
+        let a = acc
+          .replace(/\bControl\b/g, 'Ctrl')
+          .replace(/\bOption\b/g, 'Alt')
+          .replace(/\bReturn\b/g, 'Enter');
+
+        const parts = a.split('+').filter(Boolean);
+        const mods = new Set(['CommandOrControl','Command','Ctrl','Alt','Shift','Super']);
+        const order = ['CommandOrControl','Command','Ctrl','Alt','Shift','Super'];
+        const ordered = [];
+        for (const m of order) if (parts.includes(m)) ordered.push(m);
+        const keys = parts.filter(p => !mods.has(p));
+        const key = keys.length ? keys[keys.length - 1] : '';
+        return [...ordered, key].filter(Boolean).join('+');
+      };
+
+      // 僅支援：單鍵（F1~F12/PrintScreen 等）或 2 鍵（1 修飾鍵 + 1 主鍵）
+      const isSupportedAccelerator = (acc) => {
+        if (!acc || typeof acc !== 'string') return false;
+        const parts = acc.split('+').filter(Boolean);
+        const modifiers = new Set(['CommandOrControl','Command','Ctrl','Alt','Shift','Super']);
+        // 單鍵允許，或 2~3 鍵：1~2 個修飾鍵 + 1 個主鍵
+        if (parts.length === 1) return true;
+        if (parts.length >= 2 && parts.length <= 3) {
+          const mainKeys = parts.filter(p => !modifiers.has(p));
+          const modKeys = parts.filter(p => modifiers.has(p));
+          return mainKeys.length === 1 && modKeys.length >= 1 && modKeys.length <= 2;
+        }
+        return false;
+      };
+
+      // 先做一份正規化副本
+      const normalized = JSON.parse(JSON.stringify(shortcuts || {}));
+      ['region','fullscreen','window'].forEach(t => {
+        if (normalized[t] && typeof normalized[t].key === 'string') {
+          normalized[t].key = normalizeAccelerator(normalized[t].key);
+        }
+      });
+
+      const failures = [];
+      const warnings = [];
+
+      // 保存原有的 callback
+      const callbacks = {
+        region: () => {
+          console.log("快捷鍵觸發: 區域截圖");
+          this.startRegionCapture();
+        },
+        fullscreen: () => {
+          console.log("快捷鍵觸發: 全螢幕截圖");
+          this.startFullScreenCapture();
+        },
+        window: () => {
+          console.log("快捷鍵觸發: 視窗截圖");
+          this.startActiveWindowCapture();
+        },
+      };
+
       // 先取消所有現有的快捷鍵
       this.shortcutManager.unregisterAll();
-      
+
       // 儲存快捷鍵設定
-      store.set("shortcuts", shortcuts);
-      
-      // 重新註冊快捷鍵
-      if (shortcuts.enabled !== false) {
-        if (shortcuts.region && shortcuts.region.enabled) {
-          const regionKey = shortcuts.region.key || "CommandOrControl+PrintScreen";
-          this.shortcutManager.register("region", () => {
-            console.log("觸發區域截圖");
-            this.startRegionCapture();
-          });
-          store.set("shortcuts.region", shortcuts.region);
-        }
-        
-        if (shortcuts.fullscreen && shortcuts.fullscreen.enabled) {
-          const fullscreenKey = shortcuts.fullscreen.key || "PrintScreen";
-          this.shortcutManager.register("fullscreen", () => {
-            console.log("觸發全螢幕截圖");
-            this.startFullScreenCapture();
-          });
-          store.set("shortcuts.fullscreen", shortcuts.fullscreen);
-        }
-        
-        if (shortcuts.window && shortcuts.window.enabled) {
-          const windowKey = shortcuts.window.key || "Alt+PrintScreen";
-          this.shortcutManager.register("window", () => {
-            console.log("觸發視窗截圖");
-            this.startActiveWindowCapture();
-          });
-          store.set("shortcuts.window", shortcuts.window);
-        }
+      store.set("shortcuts", normalized);
+
+      const globalEnabled = normalized.enabled !== false;
+
+      if (globalEnabled) {
+        // 逐一註冊並收集失敗原因
+        ["region", "fullscreen", "window"].forEach((type) => {
+          const cfg = normalized[type];
+          if (!cfg || cfg.enabled === false) return;
+
+          const key = cfg.key || this.shortcutManager.defaultKeys[type];
+
+          // 規則：僅支援單鍵或 2 鍵（1 修飾鍵 + 1 主鍵）
+          if (!isSupportedAccelerator(key)) {
+            failures.push({
+              type,
+              key,
+              reason: "本版本僅支援單鍵（F1~F12/PrintScreen）或 2 鍵（1 修飾鍵 + 1 主鍵）",
+            });
+            return;
+          }
+
+          // Windows 上 PrintScreen 搭配修飾鍵在部分系統可能無法註冊
+          const isWin = process.platform === "win32";
+          const hasModifier = typeof key === "string" && key.includes("+");
+          if (isWin && typeof key === "string" && key.includes("PrintScreen") && hasModifier) {
+            warnings.push({ type, key, reason: "Windows 可能不支援帶修飾鍵的 PrintScreen 快捷鍵" });
+          }
+
+          const ok = this.shortcutManager.register(type, callbacks[type]);
+          if (!ok) {
+            failures.push({
+              type,
+              key,
+              reason:
+                globalShortcut.isRegistered(key)
+                  ? "按鍵已被其他程式或系統佔用"
+                  : "Electron 無法註冊該快捷鍵（可能被系統保留）",
+            });
+          }
+        });
       }
-      
-      return { success: true };
+
+      return { success: failures.length === 0, failures, warnings };
     });
 
     // 列出預設截圖資料夾中的圖片（用於前端顯示）- 分批載入版本
@@ -1234,9 +1504,9 @@ class DukshotApp {
       parent: this.mainWindow,
       modal: false,
       webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: path.join(__dirname, "preload.js"),
+        nodeIntegration: true,
+        contextIsolation: false,
+        // 設定頁面需要直接存取 ipcRenderer
       },
       icon: path.join(__dirname, "../assets/icons/logo-imgup.png"),
       title: "設定 - Dukshot",
@@ -1253,48 +1523,6 @@ class DukshotApp {
       this.settingsWindow.webContents.openDevTools();
     }
   }
-  
-  // 開啟設定視窗
-  ipcMain.handle("open-settings-window", () => {
-    this.openSettingsWindow();
-  });
-  
-  // 更新快捷鍵設定
-  ipcMain.handle("update-shortcuts", (event, shortcuts) => {
-    console.log("更新快捷鍵設定:", shortcuts);
-    
-    // 先取消所有現有的快捷鍵
-    this.shortcutManager.unregisterAll();
-    
-    // 重新註冊快捷鍵
-    if (shortcuts.enabled !== false) {
-      if (shortcuts.region && shortcuts.region.enabled) {
-        const regionKey = shortcuts.region.key || "CommandOrControl+PrintScreen";
-        this.shortcutManager.register("region", () => {
-          console.log("觸發區域截圖");
-          this.startRegionCapture();
-        });
-      }
-      
-      if (shortcuts.fullscreen && shortcuts.fullscreen.enabled) {
-        const fullscreenKey = shortcuts.fullscreen.key || "PrintScreen";
-        this.shortcutManager.register("fullscreen", () => {
-          console.log("觸發全螢幕截圖");
-          this.startFullScreenCapture();
-        });
-      }
-      
-      if (shortcuts.window && shortcuts.window.enabled) {
-        const windowKey = shortcuts.window.key || "Alt+PrintScreen";
-        this.shortcutManager.register("window", () => {
-          console.log("觸發視窗截圖");
-          this.startActiveWindowCapture();
-        });
-      }
-    }
-    
-    return { success: true };
-  });
 
   restoreMainWindow() {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {

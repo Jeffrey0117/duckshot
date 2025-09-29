@@ -17,7 +17,7 @@ class SettingsManager {
 
       // 截圖設定
       shortcuts: {
-        regionCapture: "CommandOrControl+PrintScreen",
+        regionCapture: "Ctrl+PrintScreen",
         fullScreenCapture: "PrintScreen",
         activeWindowCapture: "Alt+PrintScreen",
       },
@@ -557,26 +557,36 @@ class SettingsManager {
 
         e.preventDefault();
 
-        const keys = [];
-        if (e.ctrlKey) keys.push("CommandOrControl");
-        if (e.altKey) keys.push("Alt");
-        if (e.shiftKey) keys.push("Shift");
-        if (e.metaKey) keys.push("Cmd");
+        const isMac = navigator.platform.toUpperCase().includes("MAC");
 
-        if (
-          e.key !== "Control" &&
-          e.key !== "Alt" &&
-          e.key !== "Shift" &&
-          e.key !== "Meta"
-        ) {
-          keys.push(e.key === " " ? "Space" : e.key);
+        // 收集修飾鍵（顯示友善字樣）
+        const mods = [];
+        if (e.ctrlKey) mods.push("Ctrl");
+        if (e.altKey) mods.push(isMac ? "Option" : "Alt");
+        if (e.shiftKey) mods.push("Shift");
+        if (e.metaKey) mods.push(isMac ? "Command" : "Super");
+
+        // 當前按下的主鍵
+        let key = e.key;
+        if (key === " ") key = "Space";
+        else if (key.length === 1) key = key.toUpperCase();
+
+        // 若目前僅按下修飾鍵（無主鍵），顯示提示並等待主鍵
+        const isModifierOnly = ["Control","Ctrl","Alt","Option","Shift","Meta","Super","Command"].includes(key);
+        if (isModifierOnly) {
+          input.value = mods.length ? mods.join("+") + " + …" : "按下新的快捷鍵...";
+          return;
         }
 
-        if (keys.length > 1) {
-          input.value = keys.join("+");
-          input.dataset.recording = "false";
-          input.blur();
-        }
+        // 組合：修飾鍵 + 主鍵
+        const combo = [...mods, key].join("+");
+
+        // 顯示友善字樣
+        input.value = combo;
+
+        // 結束錄製
+        input.dataset.recording = "false";
+        input.blur();
       });
 
       input.addEventListener("blur", () => {
@@ -662,9 +672,9 @@ class SettingsManager {
       "setting-always-on-top": this.get("alwaysOnTop"),
       "setting-minimize-to-tray": this.get("minimizeToTray"),
       "setting-show-notifications": this.get("showNotifications"),
-      "setting-shortcut-region": this.get("shortcuts.regionCapture"),
-      "setting-shortcut-fullscreen": this.get("shortcuts.fullScreenCapture"),
-      "setting-shortcut-window": this.get("shortcuts.activeWindowCapture"),
+      "setting-shortcut-region": this.displayAccelerator(this.get("shortcuts.regionCapture")),
+      "setting-shortcut-fullscreen": this.displayAccelerator(this.get("shortcuts.fullScreenCapture")),
+      "setting-shortcut-window": this.displayAccelerator(this.get("shortcuts.activeWindowCapture")),
       "setting-auto-clipboard": this.get("autoSaveToClipboard"),
       "setting-image-format": this.get("defaultImageFormat"),
       "setting-image-quality": this.get("imageQuality"),
@@ -720,14 +730,9 @@ class SettingsManager {
         showNotifications: document.getElementById("setting-show-notifications")
           ?.checked,
         shortcuts: {
-          regionCapture: document.getElementById("setting-shortcut-region")
-            ?.value,
-          fullScreenCapture: document.getElementById(
-            "setting-shortcut-fullscreen"
-          )?.value,
-          activeWindowCapture: document.getElementById(
-            "setting-shortcut-window"
-          )?.value,
+          regionCapture: this.normalizeAccelerator(document.getElementById("setting-shortcut-region")?.value || ""),
+          fullScreenCapture: this.normalizeAccelerator(document.getElementById("setting-shortcut-fullscreen")?.value || ""),
+          activeWindowCapture: this.normalizeAccelerator(document.getElementById("setting-shortcut-window")?.value || ""),
         },
         autoSaveToClipboard: document.getElementById("setting-auto-clipboard")
           ?.checked,
@@ -766,6 +771,45 @@ class SettingsManager {
       console.error("Error saving settings:", error);
       ui.showNotification("設定儲存失敗", "error");
     }
+  }
+
+  // 顯示字樣（把 CommandOrControl → Ctrl（Windows）或 Command（macOS））
+  displayAccelerator(acc) {
+    if (!acc || typeof acc !== "string") return acc;
+    const isMac = navigator.platform.toUpperCase().includes("MAC");
+    let a = acc;
+    if (isMac) {
+      a = a.replace(/\bCommandOrControl\b/g, "Command").replace(/\bCtrl\b/g, "Command");
+    } else {
+      a = a.replace(/\bCommandOrControl\b/g, "Ctrl").replace(/\bCommand\b/g, "Ctrl");
+    }
+    return a;
+  }
+
+  // 正規化儲存（組合成 Electron accelerator）
+  normalizeAccelerator(acc) {
+    if (!acc || typeof acc !== "string") return acc;
+
+    // 標準化修飾鍵名稱
+    let a = acc
+      .replace(/\bControl\b/g, "Ctrl")
+      .replace(/\bCmd\b/g, "Command")
+      .replace(/\bOption\b/g, "Alt")
+      .replace(/\bReturn\b/g, "Enter");
+
+    const parts = a.split("+").filter(Boolean);
+    const mods = new Set(["CommandOrControl","Command","Ctrl","Alt","Shift","Super"]);
+    const order = ["CommandOrControl","Command","Ctrl","Alt","Shift","Super"];
+
+    // 將顯示用 Ctrl 映射回可攜寫法：Windows 顯示 Ctrl，但儲存保留 Ctrl
+    // 若想跨平台可用，這裡可視需求改為 CommandOrControl
+    const mapped = parts.map(p => p === "Cmd" ? "Command" : p);
+
+    const ordered = [];
+    for (const m of order) if (mapped.includes(m)) ordered.push(m);
+    const keys = mapped.filter(p => !mods.has(p));
+    const key = keys.length ? keys[keys.length - 1] : "";
+    return [...ordered, key].filter(Boolean).join("+");
   }
 
   resetSettings() {

@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   settings: {
     get: () => ipcRenderer.invoke("get-settings"),
     save: (settings) => ipcRenderer.invoke("save-settings", settings),
+    openWindow: () => ipcRenderer.invoke("open-settings-window"),
+    updateShortcuts: (shortcuts) => ipcRenderer.invoke("update-shortcuts", shortcuts),
   },
 
   // 與舊版相容的頂層 API 代理

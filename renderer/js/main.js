@@ -150,6 +150,10 @@ class DukshotApp {
             this.ui.showNotification("截圖完成！", "success");
             this.fileManager.refresh();
           }
+          // 確保列表立即同步（補一刀刷新）
+          setTimeout(() => {
+            try { this.fileManager.refresh(); } catch {}
+          }, 300);
         } catch (e) {
           console.error("Failed to update UI after capture:", e);
           this.ui.showNotification("截圖完成，但更新清單失敗", "warning");
@@ -178,6 +182,10 @@ class DukshotApp {
           } else {
             this.ui.showNotification("區域截圖完成", "success");
           }
+          // 保險刷新一次，確保列表立即反映
+          setTimeout(() => {
+            try { this.fileManager.refresh(); } catch {}
+          }, 300);
         } catch (e) {
           console.error("Failed to handle capture-completed event:", e);
           this.ui.showNotification("無法更新清單（區域截圖）", "warning");
@@ -386,8 +394,8 @@ class DukshotApp {
         this.closeTab(this.currentFolder);
       }
 
-      // Ctrl/Cmd + R - 重新整理
-      if ((e.ctrlKey || e.metaKey) && e.key === "r") {
+      // 僅 F5 - 重新整理（移除 Ctrl+Shift+R 以避免與全域快捷鍵衝突）
+      if (e.key === "F5") {
         e.preventDefault();
         this.fileManager.refresh();
       }
