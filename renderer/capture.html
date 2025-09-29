@@ -232,7 +232,7 @@
       /* 幫助文字 */
       .help-text {
         position: absolute;
-        top: 20px;
+        bottom: 30px;
         left: 50%;
         transform: translateX(-50%);
         background: rgba(0, 0, 0, 0.8);
@@ -610,15 +610,19 @@
           
           console.log('Canvas 實際尺寸:', this.canvas.width, 'x', this.canvas.height);
           console.log('Canvas CSS 尺寸:', this.canvas.style.width, 'x', this.canvas.style.height);
+          console.log('Device Pixel Ratio:', this.dpr);
           
-          // 設定高品質渲染 - 優化畫質設定
+          // 設定 2D context 的縮放以匹配 DPI
+          this.ctx.scale(this.dpr, this.dpr);
+          
+          // 關閉圖片平滑以保持最高畫質（避免模糊）
           this.ctx.imageSmoothingEnabled = false;
-          this.ctx.imageSmoothingQuality = 'high';
-          
-          // 額外的畫質優化設定
           this.ctx.mozImageSmoothingEnabled = false;
           this.ctx.webkitImageSmoothingEnabled = false;
           this.ctx.msImageSmoothingEnabled = false;
+          
+          // 重置縮放（因為我們會在繪製時處理）
+          this.ctx.setTransform(1, 0, 0, 1, 0, 0);
         }
 
         listenForScreenData() {
@@ -641,14 +645,8 @@
             // 保存當前狀態
             this.ctx.save();
             
-            // 重置變換矩陣
+            // 重置變換矩陣，確保精確繪製
             this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-            
-            // 關閉圖片平滑以保持銳利度 - 加強畫質
-            this.ctx.imageSmoothingEnabled = false;
-            this.ctx.mozImageSmoothingEnabled = false;
-            this.ctx.webkitImageSmoothingEnabled = false;
-            this.ctx.msImageSmoothingEnabled = false;
             
             // 判斷圖片和 canvas 的比例
             const scaleX = this.canvas.width / img.naturalWidth;
@@ -656,18 +654,46 @@
             
             console.log('縮放比例:', scaleX, 'x', scaleY);
             
-            // 如果是 1:1 或接近，直接繪製
-            if (Math.abs(scaleX - 1) < 0.01 && Math.abs(scaleY - 1) < 0.01) {
-              console.log('1:1 繪製（無縮放）');
+            // 根據比例選擇最佳繪製方式
+            if (Math.abs(scaleX - 1) < 0.001 && Math.abs(scaleY - 1) < 0.001) {
+              console.log('1:1 原生繪製（無縮放）');
+              // 關閉平滑處理
+              this.ctx.imageSmoothingEnabled = false;
+              this.ctx.mozImageSmoothingEnabled = false;
+              this.ctx.webkitImageSmoothingEnabled = false;
+              this.ctx.msImageSmoothingEnabled = false;
+              
+              // 直接 1:1 繪製
               this.ctx.drawImage(img, 0, 0);
+            } else if (scaleX === scaleY && scaleX > 1) {
+              console.log('等比放大繪製');
+              // 放大時關閉平滑處理以保持銳利
+              this.ctx.imageSmoothingEnabled = false;
+              this.ctx.mozImageSmoothingEnabled = false;
+              this.ctx.webkitImageSmoothingEnabled = false;
+              this.ctx.msImageSmoothingEnabled = false;
+              
+              // 使用高品質縮放算法
+              this.ctx.drawImage(
+                img,
+                0, 0, img.naturalWidth, img.naturalHeight,
+                0, 0, this.canvas.width, this.canvas.height
+              );
             } else {
-              console.log('縮放繪製');
+              console.log('需要縮放繪製');
+              // 對於需要縮小的情況，使用高品質平滑處理
+              this.ctx.imageSmoothingEnabled = true;
+              this.ctx.imageSmoothingQuality = 'high';
+              
               // 繪製完整解析度圖片
               this.ctx.drawImage(
                 img,
                 0, 0, img.naturalWidth, img.naturalHeight,
                 0, 0, this.canvas.width, this.canvas.height
               );
+              
+              // 繪製後立即關閉平滑，避免影響後續操作
+              this.ctx.imageSmoothingEnabled = false;
             }
             
             // 恢復狀態
@@ -903,6 +929,7 @@
             this.selection.y = Math.max(0, Math.min(window.innerHeight - this.selection.height, e.clientY - this.dragStartY));
             this.updateSelectionBox();
             this.updateDimensionDisplay();
+            this.updateToolbarPosition(); // 更新工具列位置
           } else if (this.isResizing && this.selection && this.resizeStartSelection) {
             const dx = e.clientX - this.resizeStartX;
             const dy = e.clientY - this.resizeStartY;
@@ -914,6 +941,7 @@
             this.adjustSelection(this.resizeHandle, dx, dy);
             this.updateSelectionBox();
             this.updateDimensionDisplay();
+            this.updateToolbarPosition(); // 更新工具列位置
           } else if (this.isSelecting) {
             const width = Math.abs(e.clientX - this.dragStartX);
             const height = Math.abs(e.clientY - this.dragStartY);
@@ -1092,16 +1120,11 @@
             tempCanvas.width = this.selection.width * this.dpr;
             tempCanvas.height = this.selection.height * this.dpr;
             
-            // 關閉圖片平滑 - 保持最高品質
+            // 關閉圖片平滑以保持最高品質（避免模糊）
             tempCtx.imageSmoothingEnabled = false;
             tempCtx.mozImageSmoothingEnabled = false;
             tempCtx.webkitImageSmoothingEnabled = false;
             tempCtx.msImageSmoothingEnabled = false;
-            tempCtx.imageSmoothingQuality = 'high';
-            tempCtx.mozImageSmoothingEnabled = false;
-            tempCtx.webkitImageSmoothingEnabled = false;
-            tempCtx.msImageSmoothingEnabled = false;
-            tempCtx.imageSmoothingQuality = 'high';
             
             // 從高解析度 canvas 擷取
             tempCtx.drawImage(
@@ -1140,12 +1163,11 @@
             
             console.log('儲存截圖 - Canvas 尺寸:', tempCanvas.width, 'x', tempCanvas.height);
             
-            // 關閉圖片平滑以保持銳利度 - 最高品質設定
+            // 關閉圖片平滑以保持最高銳利度
             tempCtx.imageSmoothingEnabled = false;
             tempCtx.mozImageSmoothingEnabled = false;
             tempCtx.webkitImageSmoothingEnabled = false;
             tempCtx.msImageSmoothingEnabled = false;
-            tempCtx.imageSmoothingQuality = 'high';
             
             // 從高解析度 canvas 擷取正確的區域
             tempCtx.drawImage(
@@ -1160,8 +1182,8 @@
               tempCanvas.height
             );
             
-            // 轉換為高品質 PNG
-            const imageData = tempCanvas.toDataURL('image/png', 1.0);
+            // 轉換為高品質 PNG（PNG 不需要品質參數）
+            const imageData = tempCanvas.toDataURL('image/png');
             const result = await window.electronAPI.saveScreenshot(imageData, 'png');
             
             if (result.success) {
@@ -1189,7 +1211,11 @@
             tempCanvas.width = this.selection.width * this.dpr;
             tempCanvas.height = this.selection.height * this.dpr;
             
+            // 關閉圖片平滑以保持最高品質
             tempCtx.imageSmoothingEnabled = false;
+            tempCtx.mozImageSmoothingEnabled = false;
+            tempCtx.webkitImageSmoothingEnabled = false;
+            tempCtx.msImageSmoothingEnabled = false;
             
             tempCtx.drawImage(
               this.canvas,
@@ -1203,9 +1229,9 @@
               tempCanvas.height
             );
             
-            // 轉換為 Blob
+            // 轉換為 Blob（PNG 格式使用最高品質）
             const blob = await new Promise(resolve => {
-              tempCanvas.toBlob(resolve, 'image/png', 1.0);
+              tempCanvas.toBlob(resolve, 'image/png');
             });
             
             // 創建 FormData
@@ -1255,24 +1281,14 @@
             case 'success':
               content.innerHTML = `
                 <div class="upload-title upload-success">✓ 上傳成功！</div>
-                <div class="upload-links">
-                  <div class="link-row">
-                    <span class="link-label">直連連結：</span>
-                    <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_direct}')">${data.url_direct}</div>
-                    <button class="copy-btn-small" onclick="navigator.clipboard.writeText('${data.url_direct}')">複製</button>
-                  </div>
-                  <div class="link-row">
-                    <span class="link-label">刪除連結：</span>
-                    <div class="link-value" onclick="navigator.clipboard.writeText('${data.url_delete}')">${data.url_delete}</div>
-                    <button class="copy-btn-small" onclick="navigator.clipboard.writeText('${data.url_delete}')">複製</button>
-                  </div>
-                </div>
-                <div style="color: #28a745; text-align: center; margin-top: 12px;">
-                  💡 直連連結已自動複製到剪貼簿
+                <div style="color: #28a745; text-align: center; margin: 20px 0; font-size: 16px;">
+                  圖片已成功上傳<br>
+                  <span style="font-size: 14px; color: #666; margin-top: 8px; display: block;">
+                    連結已複製到剪貼簿
+                  </span>
                 </div>
                 <div class="modal-buttons">
                   <button class="modal-btn modal-btn-primary" onclick="window.close()">完成</button>
-                  <button class="modal-btn modal-btn-secondary" onclick="document.getElementById('uploadModal').classList.remove('show')">繼續編輯</button>
                 </div>
               `;
               break;

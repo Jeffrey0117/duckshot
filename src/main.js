@@ -32,21 +32,23 @@ function getOptimalThumbnailSize() {
     let maxW = 0, maxH = 0;
     for (const d of displays) {
       const scale = (d.scaleFactor || 1);
-      const w = Math.round(d.size.width  * (useHiDpi ? scale : 1));
-      const h = Math.round(d.size.height * (useHiDpi ? scale : 1));
+      // 直接使用物理像素，確保最高品質
+      const w = Math.round(d.size.width  * scale);
+      const h = Math.round(d.size.height * scale);
       if (w * h > maxW * maxH) {
         maxW = w;
         maxH = h;
       }
     }
     if (maxW > 0 && maxH > 0) {
-      return { width: maxW, height: maxH };
+      // 確保尺寸不會太小，至少使用實際螢幕解析度
+      return { width: Math.max(maxW, 1920), height: Math.max(maxH, 1080) };
     }
   } catch (e) {
     console.warn("getOptimalThumbnailSize error:", e.message);
   }
-  // 後備：預設 4K
-  return { width: 3840, height: 2160 };
+  // 後備：使用更高的預設值以確保品質
+  return { width: 7680, height: 4320 }; // 8K 解析度
 }
 
 // 工具函式：用於控制等待時機
@@ -152,8 +154,9 @@ class SettingsStore {
         // 僅在開發模式且此設定為 true 時才會自動開啟 DevTools
         openDevTools: false,
         // 影像/畫質相關設定
-        highDpiCapture: true,   // 啟用高 DPI 擷取（DPR 感知）
-        smoothing: false        // 預設關閉影像平滑，避免文字模糊
+        highDpiCapture: true,     // 啟用高 DPI 擷取（DPR 感知）
+        smoothing: false,         // 預設關閉影像平滑，避免文字模糊
+        captureQuality: "highest" // 擷取品質：highest, high, medium
       };
       await this.save();
     }
@@ -189,13 +192,121 @@ class SettingsStore {
 
 const store = new SettingsStore();
 
+// 快捷鍵管理器
+class ShortcutManager {
+  constructor() {
+    this.shortcuts = new Map();
+    this.enabled = true;
+    this.defaultKeys = {
+      region: "CommandOrControl+PrintScreen",
+      fullscreen: "PrintScreen",
+      window: "Alt+PrintScreen"
+    };
+  }
+
+  register(shortcut, callback) {
+    // 檢查是否啟用
+    const isEnabled = store.get(`shortcuts.${shortcut}.enabled`) !== false;
+    if (!isEnabled || !this.enabled) return false;
+
+    // 獲取快捷鍵組合
+    const key = store.get(`shortcuts.${shortcut}.key`) || this.defaultKeys[shortcut];
+    if (!key) return false;
+
+    try {
+      // 先取消註冊（避免重複）
+      if (globalShortcut.isRegistered(key)) {
+        globalShortcut.unregister(key);
+      }
+      
+      // 註冊新的快捷鍵
+      const success = globalShortcut.register(key, callback);
+      if (success) {
+        this.shortcuts.set(shortcut, { key, callback });
+      }
+      return success;
+    } catch (error) {
+      console.error(`Failed to register shortcut ${shortcut}:`, error);
+      return false;
+    }
+  }
+
+  unregister(shortcut) {
+    const data = this.shortcuts.get(shortcut);
+    if (data) {
+      try {
+        globalShortcut.unregister(data.key);
+        this.shortcuts.delete(shortcut);
+        return true;
+      } catch (error) {
+        console.error(`Failed to unregister shortcut ${shortcut}:`, error);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  toggleShortcut(shortcut, enabled) {
+    if (enabled) {
+      const data = this.shortcuts.get(shortcut);
+      if (data) {
+        this.register(shortcut, data.callback);
+      }
+    } else {
+      this.unregister(shortcut);
+    }
+    store.set(`shortcuts.${shortcut}.enabled`, enabled);
+  }
+
+  updateShortcutKey(shortcut, newKey) {
+    // 檢查衝突
+    if (globalShortcut.isRegistered(newKey)) {
+      return { error: "快捷鍵已被使用" };
+    }
+
+    const data = this.shortcuts.get(shortcut);
+    if (!data) {
+      return { error: "快捷鍵不存在" };
+    }
+
+    // 更新快捷鍵
+    this.unregister(shortcut);
+    store.set(`shortcuts.${shortcut}.key`, newKey);
+    const success = this.register(shortcut, data.callback);
+    
+    return success ? { success: true } : { error: "註冊失敗" };
+  }
+
+  unregisterAll() {
+    this.shortcuts.forEach((data, shortcut) => {
+      this.unregister(shortcut);
+    });
+  }
+
+  toggleGlobal(enabled) {
+    this.enabled = enabled;
+    if (enabled) {
+      // 重新註冊所有快捷鍵
+      this.shortcuts.forEach((data, shortcut) => {
+        this.register(shortcut, data.callback);
+      });
+    } else {
+      // 取消所有快捷鍵
+      this.unregisterAll();
+    }
+    store.set("shortcuts.globalEnabled", enabled);
+  }
+}
+
 class DukshotApp {
   constructor() {
     this.mainWindow = null;
     this.captureWindow = null;
+    this.settingsWindow = null;
     this.isDebug = process.argv.includes("--dev");
     this.originalMainWindowBounds = null; // 記錄主視窗原始位置，供還原使用
     this.originalMainWindowState = null; // 記錄主視窗原始狀態
+    this.shortcutManager = new ShortcutManager();
   }
 
   async initialize() {
@@ -241,6 +352,12 @@ class DukshotApp {
     this.mainWindow.once("ready-to-show", () => {
       this.mainWindow.show();
 
+      // 套用已儲存的置頂狀態
+      const alwaysOnTop = store.get("alwaysOnTop");
+      if (alwaysOnTop) {
+        this.mainWindow.setAlwaysOnTop(true);
+      }
+
       // 開發模式且設定允許時才開啟開發者工具
       if (this.isDebug && store.get("openDevTools") === true) {
         this.mainWindow.webContents.openDevTools();
@@ -254,18 +371,22 @@ class DukshotApp {
   }
 
   registerGlobalShortcuts() {
-    // 區域截圖快捷鍵 (Ctrl+PrintScreen)
-    globalShortcut.register("CommandOrControl+PrintScreen", () => {
+    // 檢查是否啟用全域快捷鍵
+    const globalEnabled = store.get("shortcuts.globalEnabled") !== false;
+    if (!globalEnabled) return;
+
+    // 區域截圖快捷鍵
+    this.shortcutManager.register("region", () => {
       this.startRegionCapture();
     });
 
-    // 全螢幕截圖快捷鍵 (PrintScreen)
-    globalShortcut.register("PrintScreen", () => {
+    // 全螢幕截圖快捷鍵
+    this.shortcutManager.register("fullscreen", () => {
       this.startFullScreenCapture();
     });
 
-    // 當前視窗截圖快捷鍵 (Alt+PrintScreen)
-    globalShortcut.register("Alt+PrintScreen", () => {
+    // 當前視窗截圖快捷鍵
+    this.shortcutManager.register("window", () => {
       this.startActiveWindowCapture();
     });
   }
@@ -288,6 +409,9 @@ class DukshotApp {
     // 應用退出前清理
     electron.app.on("before-quit", () => {
       // 清理全域快捷鍵
+      if (this.shortcutManager) {
+        this.shortcutManager.unregisterAll();
+      }
       globalShortcut.unregisterAll();
     });
   }
@@ -312,6 +436,15 @@ class DukshotApp {
       if (this.mainWindow) this.mainWindow.close();
     });
 
+    // 視窗置頂功能
+    ipcMain.on("toggle-always-on-top", (event, isOnTop) => {
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.setAlwaysOnTop(isOnTop);
+        // 儲存狀態到設定
+        store.set("alwaysOnTop", isOnTop);
+      }
+    });
+
     // 視窗狀態變化通知
     this.mainWindow.on("maximize", () => {
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
@@ -329,10 +462,13 @@ class DukshotApp {
     ipcMain.handle("get-desktop-sources", async () => {
       try {
         console.log("Requesting desktop sources...");
+        
+        const thumbnailSize = getOptimalThumbnailSize();
+        console.log("Using thumbnail size:", thumbnailSize);
 
         const sources = await desktopCapturer.getSources({
           types: ["screen", "window"],
-          thumbnailSize: getOptimalThumbnailSize(),
+          thumbnailSize: thumbnailSize,
           fetchWindowIcons: false,
         });
 
@@ -484,6 +620,55 @@ class DukshotApp {
     // 儲存設定
     ipcMain.handle("save-settings", (event, settings) => {
       store.store = settings;
+      return { success: true };
+    });
+
+    // 開啟設定視窗
+    ipcMain.handle("open-settings-window", () => {
+      this.openSettingsWindow();
+      return { success: true };
+    });
+    
+    // 更新快捷鍵設定
+    ipcMain.handle("update-shortcuts", (event, shortcuts) => {
+      console.log("更新快捷鍵設定:", shortcuts);
+      
+      // 先取消所有現有的快捷鍵
+      this.shortcutManager.unregisterAll();
+      
+      // 儲存快捷鍵設定
+      store.set("shortcuts", shortcuts);
+      
+      // 重新註冊快捷鍵
+      if (shortcuts.enabled !== false) {
+        if (shortcuts.region && shortcuts.region.enabled) {
+          const regionKey = shortcuts.region.key || "CommandOrControl+PrintScreen";
+          this.shortcutManager.register("region", () => {
+            console.log("觸發區域截圖");
+            this.startRegionCapture();
+          });
+          store.set("shortcuts.region", shortcuts.region);
+        }
+        
+        if (shortcuts.fullscreen && shortcuts.fullscreen.enabled) {
+          const fullscreenKey = shortcuts.fullscreen.key || "PrintScreen";
+          this.shortcutManager.register("fullscreen", () => {
+            console.log("觸發全螢幕截圖");
+            this.startFullScreenCapture();
+          });
+          store.set("shortcuts.fullscreen", shortcuts.fullscreen);
+        }
+        
+        if (shortcuts.window && shortcuts.window.enabled) {
+          const windowKey = shortcuts.window.key || "Alt+PrintScreen";
+          this.shortcutManager.register("window", () => {
+            console.log("觸發視窗截圖");
+            this.startActiveWindowCapture();
+          });
+          store.set("shortcuts.window", shortcuts.window);
+        }
+      }
+      
       return { success: true };
     });
 
@@ -715,9 +900,12 @@ class DukshotApp {
       
       // 步驟 3: 擷取桌面畫面（此時主視窗應已完全消失）
       console.debug("[區域截圖] 步驟4 - 開始擷取桌面畫面");
+      const thumbnailSize = getOptimalThumbnailSize();
+      console.debug("[區域截圖] 使用擷取尺寸:", thumbnailSize);
+      
       const sources = await desktopCapturer.getSources({
         types: ["screen"],
-        thumbnailSize: getOptimalThumbnailSize(),
+        thumbnailSize: thumbnailSize,
       });
 
       if (sources.length === 0) {
@@ -762,8 +950,8 @@ class DukshotApp {
       // 使用第一個螢幕源
       const primaryScreen = sources[0];
       
-      // 直接使用高解析度縮圖
-      const imageData = primaryScreen.thumbnail.toDataURL("image/png", 1.0);
+      // 直接使用高解析度縮圖，PNG 格式不需要品質參數
+      const imageData = primaryScreen.thumbnail.toDataURL("image/png");
 
       // 直接保存截圖
       const saveResult = await this.saveScreenshotDirect(imageData, "png");
@@ -1034,6 +1222,80 @@ class DukshotApp {
   }
 
   // 新增主視窗還原方法
+  openSettingsWindow() {
+    if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.settingsWindow.focus();
+      return;
+    }
+
+    this.settingsWindow = new BrowserWindow({
+      width: 900,
+      height: 700,
+      parent: this.mainWindow,
+      modal: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: path.join(__dirname, "preload.js"),
+      },
+      icon: path.join(__dirname, "../assets/icons/logo-imgup.png"),
+      title: "設定 - Dukshot",
+    });
+
+    this.settingsWindow.loadFile(path.join(__dirname, "../renderer/settings.html"));
+
+    this.settingsWindow.on("closed", () => {
+      this.settingsWindow = null;
+    });
+
+    // 開發模式下開啟開發者工具
+    if (this.isDebug && store.get("openDevTools") === true) {
+      this.settingsWindow.webContents.openDevTools();
+    }
+  }
+  
+  // 開啟設定視窗
+  ipcMain.handle("open-settings-window", () => {
+    this.openSettingsWindow();
+  });
+  
+  // 更新快捷鍵設定
+  ipcMain.handle("update-shortcuts", (event, shortcuts) => {
+    console.log("更新快捷鍵設定:", shortcuts);
+    
+    // 先取消所有現有的快捷鍵
+    this.shortcutManager.unregisterAll();
+    
+    // 重新註冊快捷鍵
+    if (shortcuts.enabled !== false) {
+      if (shortcuts.region && shortcuts.region.enabled) {
+        const regionKey = shortcuts.region.key || "CommandOrControl+PrintScreen";
+        this.shortcutManager.register("region", () => {
+          console.log("觸發區域截圖");
+          this.startRegionCapture();
+        });
+      }
+      
+      if (shortcuts.fullscreen && shortcuts.fullscreen.enabled) {
+        const fullscreenKey = shortcuts.fullscreen.key || "PrintScreen";
+        this.shortcutManager.register("fullscreen", () => {
+          console.log("觸發全螢幕截圖");
+          this.startFullScreenCapture();
+        });
+      }
+      
+      if (shortcuts.window && shortcuts.window.enabled) {
+        const windowKey = shortcuts.window.key || "Alt+PrintScreen";
+        this.shortcutManager.register("window", () => {
+          console.log("觸發視窗截圖");
+          this.startActiveWindowCapture();
+        });
+      }
+    }
+    
+    return { success: true };
+  });
+
   restoreMainWindow() {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       console.debug("[區域截圖] 開始還原主視窗");

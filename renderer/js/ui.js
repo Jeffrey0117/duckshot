@@ -16,7 +16,7 @@ class UIManager {
     if (!container) return;
 
     const notification = document.createElement("div");
-    notification.className = `notification ${type} animate-slide-in-up`;
+    notification.className = `notification ${type}`;
     notification.innerHTML = `
       <div class="notification-icon">
         <i data-lucide="${this.getNotificationIcon(type)}" class="icon"></i>
@@ -55,7 +55,7 @@ class UIManager {
   removeNotification(notification) {
     if (!this.notifications.has(notification)) return;
 
-    notification.classList.add("slide-out-right");
+    notification.classList.add("slide-out-down");
     setTimeout(() => {
       if (notification.parentNode) {
         notification.parentNode.removeChild(notification);

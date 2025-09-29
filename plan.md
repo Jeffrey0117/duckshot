@@ -17,14 +17,139 @@ Dukshot 是一個跨平台的截圖工具，使用 Electron 開發，提供區�
 - ✅ 全螢幕截圖避免重複擷取
 
 ## 當前任務
-### 1. 工具列自動重新定位
+
+### 1. 視窗置頂功能
+- **目標**：實作主視窗可以保持在其他視窗上方的功能
+- **實作方案**：
+  - 在工具列添加「置頂」按鈕（圖釘圖標）
+  - 使用 Electron 的 `setAlwaysOnTop()` API
+  - 切換狀態時改變按鈕樣式（active/inactive）
+  - 儲存置頂狀態到設定檔
+- **技術細節**：
+  ```javascript
+  // 主進程 IPC 處理
+  ipcMain.on('toggle-always-on-top', (event, isOnTop) => {
+    this.mainWindow.setAlwaysOnTop(isOnTop);
+    // 儲存狀態到設定
+    store.set('alwaysOnTop', isOnTop);
+  });
+  
+  // 渲染進程觸發
+  toggleAlwaysOnTop() {
+    const isActive = !this.isAlwaysOnTop;
+    this.isAlwaysOnTop = isActive;
+    electronAPI.send('toggle-always-on-top', isActive);
+    // 更新按鈕樣式
+  }
+  ```
+
+### 2. 截圖快捷鍵啟用/停用功能
+- **目標**：允許使用者控制全域快捷鍵的啟用狀態
+- **實作方案**：
+  - 在設定介面中添加「快捷鍵設定」區塊
+  - 提供每個快捷鍵的開關選項
+  - 支援自訂快捷鍵組合
+  - 顯示快捷鍵衝突警告
+- **快捷鍵清單**：
+  - 區域截圖：Ctrl+PrintScreen（可自訂）
+  - 全螢幕截圖：PrintScreen（可自訂）
+  - 視窗截圖：Alt+PrintScreen（可自訂）
+- **技術細節**：
+  ```javascript
+  // 主進程快捷鍵管理
+  class ShortcutManager {
+    constructor() {
+      this.shortcuts = new Map();
+      this.enabled = true;
+    }
+    
+    register(shortcut, callback) {
+      if (this.enabled && store.get(`shortcuts.${shortcut}.enabled`, true)) {
+        const key = store.get(`shortcuts.${shortcut}.key`, defaultKeys[shortcut]);
+        globalShortcut.register(key, callback);
+        this.shortcuts.set(shortcut, { key, callback });
+      }
+    }
+    
+    unregister(shortcut) {
+      const data = this.shortcuts.get(shortcut);
+      if (data) {
+        globalShortcut.unregister(data.key);
+        this.shortcuts.delete(shortcut);
+      }
+    }
+    
+    toggleShortcut(shortcut, enabled) {
+      if (enabled) {
+        this.register(shortcut, this.shortcuts.get(shortcut).callback);
+      } else {
+        this.unregister(shortcut);
+      }
+      store.set(`shortcuts.${shortcut}.enabled`, enabled);
+    }
+    
+    updateShortcutKey(shortcut, newKey) {
+      // 檢查衝突
+      if (globalShortcut.isRegistered(newKey)) {
+        return { error: '快捷鍵已被使用' };
+      }
+      
+      // 更新快捷鍵
+      this.unregister(shortcut);
+      store.set(`shortcuts.${shortcut}.key`, newKey);
+      this.register(shortcut, this.shortcuts.get(shortcut).callback);
+      
+      return { success: true };
+    }
+  }
+  ```
+
+### 3. 設定介面優化
+- **新增設定項目**：
+  - 「視窗設定」區塊
+    - 啟動時置頂：開關
+    - 最小化到系統托盤：開關
+  - 「快捷鍵設定」區塊
+    - 啟用全域快捷鍵：總開關
+    - 各快捷鍵獨立設定：
+      - 啟用/停用開關
+      - 快捷鍵編輯器（點擊記錄新按鍵）
+      - 重設為預設值按鈕
+- **UI 設計**：
+  ```html
+  <!-- 快捷鍵設定區塊 -->
+  <div class="settings-section">
+    <h3>快捷鍵設定</h3>
+    <div class="setting-item">
+      <label>
+        <input type="checkbox" id="enable-global-shortcuts">
+        啟用全域快捷鍵
+      </label>
+    </div>
+    
+    <div class="shortcuts-list">
+      <div class="shortcut-item">
+        <span class="shortcut-name">區域截圖</span>
+        <input type="checkbox" class="shortcut-enabled">
+        <div class="shortcut-key-editor">
+          <input type="text" value="Ctrl+PrintScreen" readonly>
+          <button class="edit-key">編輯</button>
+          <button class="reset-key">重設</button>
+        </div>
+      </div>
+      <!-- 其他快捷鍵項目 -->
+    </div>
+  </div>
+  ```
+
+### 4. 工具列自動重新定位
 - **問題描述**：移動或調整截圖區域時，工具列位置沒有跟隨更新
 - **解決方案**：
   - 在拖曳選取區域時觸發工具列重新定位
   - 在調整大小時觸發工具列重新定位
   - 確保工具列始終在可視範圍內
 
-### 2. 圖片上傳功能
+### 5. 圖片上傳功能
 - **新增按鈕**：在工具列添加「上傳」按鈕
 - **API 整合**：使用提供的 urusai.cc API
   - URL: `https://api.urusai.cc/v1/upload`
@@ -135,9 +260,16 @@ dukshot/
 - 自定義上傳服務器設定
 - 壓縮選項（可選）
 - 浮水印功能（可選）
+- 系統托盤功能
+- 快捷鍵匯入/匯出設定
+- 多顯示器支援優化
 
 ## 測試重點
-1. 工具列在各種操作下的位置正確性
-2. 上傳功能的穩定性和錯誤處理
-3. 不同網路環境下的上傳體驗
-4. UI 反饋的及時性和準確性
+1. 視窗置頂功能在不同應用程式間的切換
+2. 快捷鍵設定的儲存和載入
+3. 快捷鍵衝突檢測的準確性
+4. 自訂快捷鍵的相容性
+5. 工具列在各種操作下的位置正確性
+6. 上傳功能的穩定性和錯誤處理
+7. 不同網路環境下的上傳體驗
+8. UI 反饋的及時性和準確性

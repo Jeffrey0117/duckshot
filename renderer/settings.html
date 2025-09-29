@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>設定 - Dukshot</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/components.css">
+  <style>
+    .settings-container {
+      padding: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .settings-section {
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .settings-section h3 {
+      margin: 0 0 20px 0;
+      color: var(--text-primary);
+      font-size: 18px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 10px;
+    }
+
+    .setting-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 15px;
+      padding: 10px 0;
+    }
+
+    .setting-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .setting-label {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .setting-label .label-text {
+      font-size: 14px;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .setting-label .label-description {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .setting-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* 開關樣式 */
+    .toggle-switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+    }
+
+    .toggle-switch input {
+      display: none;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: var(--bg-tertiary);
+      border-radius: 12px;
+      transition: all 0.3s;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: all 0.3s;
+    }
+
+    input:checked + .toggle-slider {
+      background: var(--primary-color);
+    }
+
+    input:checked + .toggle-slider:before {
+      transform: translateX(20px);
+    }
+
+    /* 快捷鍵編輯器 */
+    .shortcut-editor {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .shortcut-input {
+      padding: 6px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 13px;
+      width: 180px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .shortcut-input:hover {
+      border-color: var(--primary-color);
+    }
+
+    .shortcut-input.recording {
+      border-color: var(--primary-color);
+      background: rgba(0, 128, 255, 0.1);
+    }
+
+    .shortcuts-list {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .shortcut-item {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      background: var(--bg-primary);
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+
+    .shortcut-item:hover {
+      background: var(--bg-hover);
+    }
+
+    .shortcut-name {
+      flex: 1;
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    .shortcut-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .edit-key-btn, .reset-key-btn {
+      padding: 4px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .edit-key-btn:hover {
+      border-color: var(--primary-color);
+      color: var(--primary-color);
+    }
+
+    .reset-key-btn:hover {
+      border-color: var(--text-tertiary);
+      color: var(--text-tertiary);
+    }
+
+    /* 按鈕區域 */
+    .settings-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 30px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border-color);
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-container">
+    <h2>設定</h2>
+
+    <!-- 視窗設定 -->
+    <div class="settings-section">
+      <h3>視窗設定</h3>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span class="label-text">啟動時置頂</span>
+          <span class="label-description">程式啟動時自動將視窗設為最上層</span>
+        </div>
+        <div class="setting-control">
+          <label class="toggle-switch">
+            <input type="checkbox" id="startup-always-on-top">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span class="label-text">最小化到系統托盤</span>
+          <span class="label-description">關閉視窗時最小化到系統托盤而非完全關閉</span>
+        </div>
+        <div class="setting-control">
+          <label class="toggle-switch">
+            <input type="checkbox" id="minimize-to-tray">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快捷鍵設定 -->
+    <div class="settings-section">
+      <h3>快捷鍵設定</h3>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span class="label-text">啟用全域快捷鍵</span>
+          <span class="label-description">允許在任何應用程式中使用快捷鍵截圖</span>
+        </div>
+        <div class="setting-control">
+          <label class="toggle-switch">
+            <input type="checkbox" id="enable-global-shortcuts">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      
+      <div class="shortcuts-list" id="shortcuts-list">
+        <div class="shortcut-item">
+          <span class="shortcut-name">區域截圖</span>
+          <div class="shortcut-controls">
+            <label class="toggle-switch">
+              <input type="checkbox" id="shortcut-region-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="shortcut-editor">
+              <input type="text" class="shortcut-input" id="shortcut-region-key" value="Ctrl+PrintScreen" readonly>
+              <button class="edit-key-btn" data-shortcut="region">編輯</button>
+              <button class="reset-key-btn" data-shortcut="region">重設</button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="shortcut-item">
+          <span class="shortcut-name">全螢幕截圖</span>
+          <div class="shortcut-controls">
+            <label class="toggle-switch">
+              <input type="checkbox" id="shortcut-fullscreen-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="shortcut-editor">
+              <input type="text" class="shortcut-input" id="shortcut-fullscreen-key" value="PrintScreen" readonly>
+              <button class="edit-key-btn" data-shortcut="fullscreen">編輯</button>
+              <button class="reset-key-btn" data-shortcut="fullscreen">重設</button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="shortcut-item">
+          <span class="shortcut-name">視窗截圖</span>
+          <div class="shortcut-controls">
+            <label class="toggle-switch">
+              <input type="checkbox" id="shortcut-window-enabled">
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="shortcut-editor">
+              <input type="text" class="shortcut-input" id="shortcut-window-key" value="Alt+PrintScreen" readonly>
+              <button class="edit-key-btn" data-shortcut="window">編輯</button>
+              <button class="reset-key-btn" data-shortcut="window">重設</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 一般設定 -->
+    <div class="settings-section">
+      <h3>一般設定</h3>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span class="label-text">自動儲存</span>
+          <span class="label-description">截圖後自動儲存到指定資料夾</span>
+        </div>
+        <div class="setting-control">
+          <label class="toggle-switch">
+            <input type="checkbox" id="auto-save">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="setting-item">
+        <div class="setting-label">
+          <span class="label-text">截圖格式</span>
+          <span class="label-description">選擇預設的截圖儲存格式</span>
+        </div>
+        <div class="setting-control">
+          <select id="screenshot-format" class="form-select">
+            <option value="png">PNG</option>
+            <option value="jpg">JPG</option>
+            <option value="webp">WebP</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 按鈕區域 -->
+    <div class="settings-footer">
+      <button class="btn btn-secondary" id="cancel-settings">取消</button>
+      <button class="btn btn-primary" id="save-settings">儲存設定</button>
+    </div>
+  </div>
+
+  <script src="js/settingsPage.js"></script>
+</body>
+</html>

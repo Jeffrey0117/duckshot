@@ -197,34 +197,43 @@ class SettingsManager {
   }
 
   openDialog() {
-    const ui = window.DukshotApp?.ui;
-    if (!ui) return;
+    // 使用 IPC 開啟設定視窗
+    if (window.electronAPI && window.electronAPI.openSettings) {
+      window.electronAPI.openSettings();
+    } else if (typeof require !== 'undefined') {
+      const { ipcRenderer } = require('electron');
+      ipcRenderer.invoke('open-settings-window');
+    } else {
+      // 如果無法使用 IPC，則使用原本的 modal
+      const ui = window.DukshotApp?.ui;
+      if (!ui) return;
 
-    const settingsHtml = this.generateSettingsHTML();
+      const settingsHtml = this.generateSettingsHTML();
 
-    const modal = ui.createModal("設定", settingsHtml, [
-      {
-        text: "重設",
-        class: "btn-ghost",
-        action: () => this.resetSettings(),
-      },
-      {
-        text: "取消",
-        class: "btn-secondary",
-        action: () => ui.closeModal(),
-      },
-      {
-        text: "儲存",
-        class: "btn-primary",
-        action: () => this.saveSettingsFromDialog(),
-      },
-    ]);
+      const modal = ui.createModal("設定", settingsHtml, [
+        {
+          text: "重設",
+          class: "btn-ghost",
+          action: () => this.resetSettings(),
+        },
+        {
+          text: "取消",
+          class: "btn-secondary",
+          action: () => ui.closeModal(),
+        },
+        {
+          text: "儲存",
+          class: "btn-primary",
+          action: () => this.saveSettingsFromDialog(),
+        },
+      ]);
 
-    // 載入當前設定值
-    this.loadSettingsToDialog();
+      // 載入當前設定值
+      this.loadSettingsToDialog();
 
-    // 設置事件監聽器
-    this.setupDialogEvents();
+      // 設置事件監聽器
+      this.setupDialogEvents();
+    }
   }
 
   generateSettingsHTML() {
