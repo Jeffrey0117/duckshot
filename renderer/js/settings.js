@@ -141,7 +141,7 @@ class SettingsManager {
         break;
 
       case "alwaysOnTop":
-        electronAPI.send("set-always-on-top", value);
+        electronAPI.send("toggle-always-on-top", value);
         break;
 
       case "shortcuts":

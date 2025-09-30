@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('windowControls', {
 
 // 安全地暴露 API 給渲染程序
 contextBridge.exposeInMainWorld("electronAPI", {
+  window: {
+    getAlwaysOnTopState: () => ipcRenderer.invoke("get-always-on-top-state"),
+    forceClearAlwaysOnTop: () => ipcRenderer.invoke("force-clear-always-on-top"),
+  },
   // 重新組織 API 結構，將截圖相關 API 分組
   capture: {
     getDesktopSources: () => ipcRenderer.invoke("get-desktop-sources"),
@@ -51,6 +55,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "settings-updated",
       "screen-data",
       "more-files-loaded",
+      "toggle-always-on-top",
     ];
 
     if (validChannels.includes(channel)) {
@@ -74,6 +79,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "capture-region-selected",
       "capture-cancelled",
       "window-close",
+      "toggle-always-on-top",
     ];
 
     if (validChannels.includes(channel)) {

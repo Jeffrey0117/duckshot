@@ -376,10 +376,13 @@ class DukshotApp {
     this.mainWindow.once("ready-to-show", () => {
       this.mainWindow.show();
 
-      // 套用已儲存的置頂狀態
-      const alwaysOnTop = store.get("alwaysOnTop");
+      // 套用已儲存的置頂狀態（顯式同步 true/false，並確保層級/工作區狀態正確）
+      const alwaysOnTop = store.get("alwaysOnTop") === true;
+      // 先清為 normal 層級的 false，再依設定套用，避免殘留 OS 層級
+      this.mainWindow.setAlwaysOnTop(false, 'normal');
+      try { this.mainWindow.setVisibleOnAllWorkspaces(false); } catch {}
       if (alwaysOnTop) {
-        this.mainWindow.setAlwaysOnTop(true);
+        this.mainWindow.setAlwaysOnTop(true, 'normal');
       }
 
       // 開發模式且設定允許時才開啟開發者工具
@@ -452,6 +455,18 @@ class DukshotApp {
     // 視窗獲得焦點時，若偵測到未註冊任何快捷鍵且已啟用，嘗試自我修復重註冊
     electron.app.on("browser-window-focus", () => {
       try {
+        // 強制同步主視窗置頂狀態，避免意外維持置頂
+        try {
+          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            const aot = store.get("alwaysOnTop") === true;
+            this.mainWindow.setAlwaysOnTop(aot, 'normal');
+            try { this.mainWindow.setVisibleOnAllWorkspaces(false); } catch {}
+            console.debug("[focus] 同步主視窗置頂狀態:", aot);
+          }
+        } catch (e) {
+          console.warn("[focus] 同步置頂狀態失敗：", e.message);
+        }
+
         const shortcuts = store.get("shortcuts") || {};
         const globalEnabled = shortcuts.enabled !== false;
         if (!globalEnabled) return;
@@ -511,9 +526,37 @@ class DukshotApp {
     // 視窗置頂功能
     ipcMain.on("toggle-always-on-top", (event, isOnTop) => {
       if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-        this.mainWindow.setAlwaysOnTop(isOnTop);
+        // 使用 normal 層級明確覆寫，並確保不在所有工作區顯示
+        this.mainWindow.setAlwaysOnTop(!!isOnTop, 'normal');
+        try { this.mainWindow.setVisibleOnAllWorkspaces(false); } catch {}
         // 儲存狀態到設定
-        store.set("alwaysOnTop", isOnTop);
+        store.set("alwaysOnTop", !!isOnTop);
+      }
+    });
+
+    // 讀取目前置頂狀態（診斷用）
+    ipcMain.handle("get-always-on-top-state", () => {
+      try {
+        const winOnTop = this.mainWindow && !this.mainWindow.isDestroyed() ? this.mainWindow.isAlwaysOnTop() : null;
+        const setting = store.get("alwaysOnTop") === true;
+        return { success: true, winOnTop, setting };
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    });
+
+    // 強制清除置頂（診斷/修復）
+    ipcMain.handle("force-clear-always-on-top", () => {
+      try {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.setAlwaysOnTop(false, 'normal');
+          try { this.mainWindow.setVisibleOnAllWorkspaces(false); } catch {}
+        }
+        store.set("alwaysOnTop", false);
+        const winOnTop = this.mainWindow && !this.mainWindow.isDestroyed() ? this.mainWindow.isAlwaysOnTop() : null;
+        return { success: true, winOnTop, setting: false };
+      } catch (e) {
+        return { success: false, error: e.message };
       }
     });
 
@@ -689,9 +732,21 @@ class DukshotApp {
       return store.store;
     });
 
-    // 儲存設定（並確保快捷鍵立即套用）
+    // 儲存設定（並確保快捷鍵與置頂狀態立即套用）
     ipcMain.handle("save-settings", (event, settings) => {
       store.store = settings;
+
+      // 立即同步主視窗置頂狀態（避免使用者關掉後仍維持置頂）
+      try {
+        const aot = settings && typeof settings.alwaysOnTop === "boolean" ? settings.alwaysOnTop : false;
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.setAlwaysOnTop(!!aot, 'normal');
+          try { this.mainWindow.setVisibleOnAllWorkspaces(false); } catch {}
+          console.log("[save-settings] 同步主視窗置頂狀態:", !!aot);
+        }
+      } catch (e) {
+        console.warn("[save-settings] 同步置頂狀態失敗:", e.message);
+      }
 
       // 若帶有快捷鍵設定，立即套用（防止前端未呼叫 update-shortcuts 的情況）
       if (settings && settings.shortcuts) {
@@ -1555,6 +1610,12 @@ class DukshotApp {
         // 沒有狀態記錄時，預設還原
         this.mainWindow.restore();
       }
+      
+      // 同步置頂狀態（強制為 normal 層級，並取消全工作區可見）
+      const aot = store.get("alwaysOnTop") === true;
+      this.mainWindow.setAlwaysOnTop(aot, 'normal');
+      try { this.mainWindow.setVisibleOnAllWorkspaces(false); } catch {}
+      console.debug("[區域截圖] - 同步置頂狀態:", aot);
       
       // 顯示視窗
       this.mainWindow.show();
